@@ -1,0 +1,1034 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>开团助手</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+/* Hallmark · redesign · genre: modern-minimal · theme: custom-light
+ * audience: 团长运营后台 · tone: utilitarian · contrast: pass */
+:root{
+  --bg:#F5F7FA;
+  --surface:#FFFFFF;
+  --surface2:#F0F2F7;
+  --surface3:#E4E8F2;
+  --border:#E4E8F2;
+  --border2:#CDD3E6;
+  --text:#111827;
+  --text2:#4B5480;
+  --text3:#8C95B8;
+  --accent:#3B65F5;
+  --accent-bg:rgba(59,101,245,.07);
+  --accent-hover:rgba(59,101,245,.13);
+  --green:#0D9F6E;
+  --green-bg:rgba(13,159,110,.08);
+  --red:#DC3545;
+  --red-bg:rgba(220,53,69,.07);
+  --yellow:#C2820A;
+  --yellow-bg:rgba(194,130,10,.08);
+  --mono:'SF Mono','Fira Code',monospace;
+  --radius:6px;
+}
+body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:13px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Topbar ── */
+.topbar{height:48px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 16px;gap:12px;flex-shrink:0}
+.topbar .logo{font-size:14px;font-weight:600;color:var(--text);letter-spacing:-.3px}
+.topbar .logo span{color:var(--accent)}
+
+.token-pill{margin-left:auto;display:flex;align-items:center;gap:7px;padding:5px 11px;border-radius:20px;border:1px solid var(--border2);background:var(--surface2);cursor:pointer;transition:border-color .15s}
+.token-pill:hover{border-color:var(--accent)}
+.token-pill .dot{width:7px;height:7px;border-radius:50%}
+.dot-green{background:var(--green)}
+.dot-yellow{background:var(--yellow)}
+.dot-red{background:var(--red)}
+.token-pill .label{font-size:12px;color:var(--text2)}
+
+/* ── Layout ── */
+.layout{flex:1;display:flex;overflow:hidden}
+
+/* ── Sidebar ── */
+.sidebar{width:200px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
+.sidebar-section{padding:16px 12px 8px;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em}
+.nav-item{display:flex;align-items:center;gap:9px;padding:7px 12px;border-radius:var(--radius);margin:0 4px;cursor:pointer;color:var(--text2);font-size:13px;transition:background .12s,color .12s}
+.nav-item:hover{background:var(--surface2);color:var(--text)}
+.nav-item.active{background:var(--accent-bg);color:var(--accent)}
+.nav-item svg{width:15px;height:15px;flex-shrink:0}
+.nav-item .badge{margin-left:auto;background:var(--surface3);color:var(--text2);font-size:11px;padding:1px 6px;border-radius:10px;min-width:20px;text-align:center}
+.nav-item.active .badge{background:var(--accent-bg);color:var(--accent)}
+
+/* ── Main ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* ── Panel ── */
+.panel{display:none;flex:1;flex-direction:column;overflow:hidden}
+.panel.active{display:flex}
+
+/* ── Toolbar ── */
+.toolbar{padding:10px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap}
+.toolbar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+
+/* ── Filter Chips ── */
+.filter-wrap{position:relative}
+.filter-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 10px;border-radius:var(--radius);border:1px solid var(--border2);background:var(--surface2);cursor:pointer;font-size:12px;color:var(--text2);transition:border-color .12s,color .12s;user-select:none;white-space:nowrap}
+.filter-chip:hover,.filter-chip.open{border-color:var(--accent);color:var(--text)}
+.filter-chip .chip-arrow{transition:transform .15s;opacity:.5}
+.filter-chip.open .chip-arrow{transform:rotate(180deg)}
+.filter-chip .chip-count{background:var(--accent);color:#fff;font-size:10px;padding:0 5px;border-radius:8px;min-width:16px;text-align:center;line-height:16px}
+
+.dropdown{position:absolute;top:calc(100% + 5px);left:0;min-width:170px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:200;padding:4px;display:none}
+.dropdown.open{display:block}
+.dd-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:5px;cursor:pointer;font-size:13px;color:var(--text2);transition:background .1s}
+.dd-item:hover{background:var(--surface3);color:var(--text)}
+.dd-item input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;flex-shrink:0;cursor:pointer}
+.dd-item.checked{color:var(--text)}
+.dd-sep{border:none;border-top:1px solid var(--border);margin:3px 0}
+.dd-all{font-weight:500}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:6px;padding:6px 13px;border-radius:var(--radius);border:none;cursor:pointer;font-size:12px;font-weight:500;font-family:inherit;transition:opacity .15s,background .15s;white-space:nowrap}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{opacity:.88}
+.btn-primary:disabled{opacity:.35;cursor:not-allowed}
+.btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border2)}
+.btn-ghost:hover{color:var(--text);border-color:var(--text3)}
+.btn-danger{background:transparent;color:var(--red);border:1px solid transparent}
+.btn-danger:hover{border-color:var(--red);background:var(--red-bg)}
+.stat-text{font-size:12px;color:var(--text3)}
+.stat-text strong{color:var(--text2)}
+
+/* ── Table ── */
+.table-wrap{flex:1;overflow:auto}
+table{width:100%;border-collapse:collapse;table-layout:auto}
+thead th{background:var(--surface);position:sticky;top:0;padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);white-space:nowrap;z-index:2}
+thead th:first-child{width:36px;padding:8px 0 8px 14px}
+th.sortable{cursor:pointer;user-select:none}
+th.sortable:hover{color:var(--text2)}
+th.sort-active{color:var(--accent)!important}
+tbody tr{border-bottom:1px solid var(--border);transition:background .1s}
+tbody tr:hover{background:#EEF1FA}
+tbody td{padding:9px 12px;vertical-align:middle;line-height:1.4}
+tbody td:first-child{padding:9px 0 9px 14px}
+.cell-name{max-width:260px}
+.cell-name .name-main{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;color:var(--text)}
+.cell-name .name-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;color:var(--text3);margin-top:2px}
+.num{font-variant-numeric:tabular-nums;text-align:right;font-size:12px}
+td.num{color:var(--text2)}
+.earn{color:var(--green)!important;font-weight:500}
+.tag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:500}
+.tag-star{background:var(--yellow-bg);color:var(--yellow)}
+.tag-helped{background:var(--red-bg);color:var(--red)}
+input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
+
+/* ── Progress ── */
+.progress-area{flex-shrink:0;border-bottom:1px solid var(--border);padding:10px 16px;display:none}
+.progress-area.show{display:block}
+.progress-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.progress-title{font-size:12px;font-weight:500;color:var(--text2)}
+.progress-track{height:3px;background:var(--surface3);border-radius:2px;margin-bottom:8px;overflow:hidden}
+.progress-fill{height:3px;background:var(--accent);border-radius:2px;transition:width .4s;width:0%}
+.progress-fill.done{background:var(--green)}
+.stream{height:120px;overflow-y:auto;font-family:var(--mono);font-size:11px;line-height:1.6;padding:4px 6px;background:var(--surface2);border-radius:var(--radius)}
+.stream .l{padding:1px 0}
+.stream .l-ok{color:var(--green)}
+.stream .l-err{color:var(--red)}
+.stream .l-info{color:var(--text3)}
+
+/* ── Open panel ── */
+.open-wrap{flex:1;display:flex;overflow:hidden}
+.open-table{flex:1;overflow:auto}
+.open-side{width:220px;flex-shrink:0;border-left:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+.side-label{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
+.side-field{font-size:13px;color:var(--text2);display:flex;align-items:center;justify-content:space-between}
+.side-input{width:80px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:5px 8px;border-radius:var(--radius);font-size:13px;font-family:inherit;text-align:right}
+.side-input:focus{outline:none;border-color:var(--accent)}
+.toggle{position:relative;width:32px;height:18px}
+.toggle input{opacity:0;width:0;height:0}
+.tslider{position:absolute;inset:0;background:var(--surface3);border-radius:9px;cursor:pointer;transition:background .2s}
+.tslider::before{content:'';position:absolute;left:2px;top:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:transform .2s}
+.toggle input:checked+.tslider{background:var(--accent)}
+.toggle input:checked+.tslider::before{transform:translateX(14px)}
+.hr{border:none;border-top:1px solid var(--border)}
+.open-stats{font-size:12px;color:var(--text3);line-height:1.8}
+.open-stats strong{color:var(--text2)}
+.open-progress{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px}
+.op-stats-row{display:flex;gap:14px;font-size:12px;margin-bottom:8px}
+.op-ok{color:var(--green)}
+.op-fail{color:var(--red)}
+.op-muted{color:var(--text3)}
+
+/* ── History ── */
+.history-wrap{flex:1;overflow-y:auto}
+.hist-row{display:flex;align-items:center;gap:12px;padding:9px 16px;border-bottom:1px solid var(--border);font-size:12px;transition:background .1s}
+.hist-row:hover{background:var(--surface2)}
+.hist-time{color:var(--text3);flex-shrink:0;width:140px}
+.hist-status{flex-shrink:0;width:16px}
+.hist-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)}
+.hist-id{color:var(--accent);font-family:var(--mono);font-size:11px;flex-shrink:0}
+
+/* ── Modal ── */
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:500}
+.overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:24px;width:420px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,.5)}
+.modal h2{font-size:15px;font-weight:600;margin-bottom:16px}
+.mfield{margin-bottom:14px}
+.mfield label{display:block;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+.mfield input,.mfield textarea{width:100%;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:8px 10px;border-radius:var(--radius);font-size:13px;font-family:var(--mono)}
+.mfield textarea{height:72px;resize:none}
+.mfield input:focus,.mfield textarea:focus{outline:none;border-color:var(--accent)}
+.token-status{background:var(--surface2);border-radius:var(--radius);padding:10px 12px;margin-bottom:14px;font-size:12px;color:var(--text2);line-height:1.9}
+.mfooter{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+
+/* ── Empty ── */
+.empty{text-align:center;padding:64px 16px;color:var(--text3);font-size:13px}
+.empty svg{margin-bottom:12px;opacity:.3}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">开团<span>助手</span></div>
+  <div class="token-pill" onclick="openModal()">
+    <div class="dot" id="tokenDot"></div>
+    <span class="label" id="tokenLabel">加载中</span>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-section">功能</div>
+    <div class="nav-item active" id="nav-activities" onclick="switchPanel('activities',this)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="13" height="13" rx="2"/><path d="M4 8h8M4 5.5h8M4 10.5h5"/></svg>
+      活动列表
+      <span class="badge" id="badge-activities">0</span>
+    </div>
+    <div class="nav-item" id="nav-open" onclick="switchPanel('open',this)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6.5"/><path d="M8 5v3l2 2"/></svg>
+      批量开团
+      <span class="badge" id="badge-open">0</span>
+    </div>
+    <div class="nav-item" id="nav-history" onclick="switchPanel('history',this)">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 3v5l3 3"/><circle cx="8" cy="8" r="6.5"/></svg>
+      历史记录
+      <span class="badge" id="badge-history">0</span>
+    </div>
+  </aside>
+
+  <div class="main">
+
+    <!-- 活动列表 -->
+    <div class="panel active" id="panel-activities">
+      <div class="toolbar">
+        <!-- 分类筛选 -->
+        <div class="filter-wrap" id="fw-cat">
+          <div class="filter-chip" id="chip-cat" onclick="toggleDd('dd-cat','chip-cat')">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
+            分类
+            <span class="chip-count" id="cc-cat" style="display:none"></span>
+            <svg class="chip-arrow" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5l3 3 3-3"/></svg>
+          </div>
+          <div class="dropdown" id="dd-cat">
+            <label class="dd-item dd-all">
+              <input type="checkbox" id="cat-all" checked onchange="onCatAllChange(this)"> 全部分类
+            </label>
+            <hr class="dd-sep">
+            <div id="cat-options"></div>
+          </div>
+        </div>
+
+        <!-- 供应类型 -->
+        <div class="filter-wrap" id="fw-up">
+          <div class="filter-chip" id="chip-up" onclick="toggleDd('dd-up','chip-up')">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="2.5"/><path d="M3 13c0-2.76 2.24-5 5-5s5 2.24 5 5"/></svg>
+            供应类型
+            <span class="chip-count" id="cc-up" style="display:none"></span>
+            <svg class="chip-arrow" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5l3 3 3-3"/></svg>
+          </div>
+          <div class="dropdown" id="dd-up">
+            <label class="dd-item"><input type="checkbox" checked data-up="2" onchange="onUpChange(2,this)"> 跟团活动</label>
+            <label class="dd-item"><input type="checkbox" checked data-up="3" onchange="onUpChange(3,this)"> 供货品牌</label>
+          </div>
+        </div>
+
+        <!-- 天数 -->
+        <div class="filter-chip" style="cursor:default;gap:7px">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="12" rx="1.5"/><path d="M1.5 6.5h13M5 1v3M11 1v3"/></svg>
+          近
+          <input id="daysInput" type="number" value="7" min="1" max="60"
+            style="width:38px;background:transparent;border:none;color:var(--text);font-size:13px;font-family:inherit;text-align:center;outline:none"
+            onclick="event.stopPropagation()">
+          天
+        </div>
+
+        <!-- 类型筛选 -->
+        <div style="display:flex;gap:4px" id="catFilter">
+          <div class="filter-chip" id="cf-all" onclick="setCatFilter('all')" style="border-color:var(--accent);color:var(--accent)">全部</div>
+          <div class="filter-chip" id="cf-new" onclick="setCatFilter('new')">新活动</div>
+          <div class="filter-chip" id="cf-reopen" onclick="setCatFilter('reopen')">可复开 <span class="chip-count" id="reopen-count" style="display:none"></span></div>
+        </div>
+        <input id="searchInput" type="text" placeholder="搜索活动/商品名..."
+          style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:5px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;width:180px;outline:none"
+          oninput="onSearch(this.value)"
+          onfocus="this.style.borderColor='var(--accent)'"
+          onblur="this.style.borderColor='var(--border2)'">
+        <button class="btn btn-primary" id="fetchBtn" onclick="startFetch()">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v5l3-3M8 7l-3-3"/><path d="M3 10v2.5A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V10"/></svg>
+          刷新列表
+        </button>
+
+        <div class="toolbar-right">
+          <span class="stat-text" id="actStat"></span>
+          <button class="btn btn-ghost" id="selAllBtn" onclick="selectAllActs()" style="display:none">全选</button>
+          <button class="btn btn-ghost" id="clearSelBtn" onclick="clearSel()" style="display:none">取消</button>
+          <button class="btn btn-primary" id="toOpenBtn" onclick="goToOpen()" style="display:none">
+            开选中 →
+          </button>
+        </div>
+      </div>
+
+      <div class="progress-area" id="fetchProgress">
+        <div class="progress-header">
+          <span class="progress-title" id="fetchStatus">正在拉取...</span>
+        </div>
+        <div class="progress-track"><div class="progress-fill" id="fetchBar"></div></div>
+        <div class="stream" id="fetchLog"></div>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th><input type="checkbox" id="selectAll" onchange="toggleSelectAll(this)"></th>
+              <th id="th-startTime" class="sortable" onclick="setSort('startTime')">时间</th>
+              <th>活动名称</th>
+              <th id="th-price" class="sortable num" onclick="setSort('price')">价格</th>
+              <th id="th-followEarning" class="sortable num" onclick="setSort('followEarning')">跟团佣金</th>
+              <th id="th-totalOrders" class="sortable num" onclick="setSort('totalOrders')">总订单</th>
+              <th>商品</th>
+              <th>供应商</th>
+            </tr>
+          </thead>
+          <tbody id="actBody"></tbody>
+        </table>
+        <div class="empty" id="actEmpty">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><br>
+          暂无数据，点击「刷新列表」拉取
+        </div>
+      </div>
+    </div>
+
+    <!-- 批量开团 -->
+    <div class="panel" id="panel-open">
+      <div class="toolbar">
+        <div style="display:flex;gap:4px" id="openCatFilter">
+          <div class="filter-chip" id="ocf-all" onclick="setOpenCatFilter('all')" style="border-color:var(--accent);color:var(--accent)">全部</div>
+          <div class="filter-chip" id="ocf-new" onclick="setOpenCatFilter('new')">新活动</div>
+          <div class="filter-chip" id="ocf-reopen" onclick="setOpenCatFilter('reopen')">可复开</div>
+        </div>
+        <input id="openSearchInput" type="text" placeholder="搜索..."
+          style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:5px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;width:160px;outline:none"
+          oninput="onOpenSearch(this.value)"
+          onfocus="this.style.borderColor='var(--accent)'"
+          onblur="this.style.borderColor='var(--border2)'">
+        <span class="stat-text" id="openStat">从活动列表选择或全选后开团</span>
+        <div class="toolbar-right">
+          <button class="btn btn-ghost" id="openSelAllBtn" onclick="openSelectAll()">全选</button>
+          <button class="btn btn-ghost" onclick="openClearSel()">清除</button>
+        </div>
+      </div>
+      <div class="open-wrap">
+        <div class="open-table">
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="openAllCb" onchange="openToggleAll(this)"></th>
+                <th>时间</th>
+                <th>活动名称</th>
+                <th class="num">跟团佣金</th>
+                <th class="num">总订单</th>
+                <th>供应商</th>
+              </tr>
+            </thead>
+            <tbody id="openBody"></tbody>
+          </table>
+          <div class="empty" id="openEmpty">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 3"/></svg><br>
+            请先在活动列表拉取数据
+          </div>
+        </div>
+
+        <div class="open-side">
+          <div>
+            <div class="side-label">参数</div>
+            <div class="side-field" style="margin-bottom:10px">
+              <span>请求间隔 (s)</span>
+              <input class="side-input" id="delayInput" type="number" value="1" min="0.5" max="5" step="0.5">
+            </div>
+            <div class="side-field">
+              <span>Dry-run 模式</span>
+              <label class="toggle">
+                <input type="checkbox" id="dryRunToggle">
+                <div class="tslider"></div>
+              </label>
+            </div>
+            <p style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.6">开启后只验证模板，不真正创建活动</p>
+          </div>
+          <hr class="hr">
+          <div class="open-stats" id="openStatBox">已选 <strong>0</strong> 个</div>
+          <button class="btn btn-primary" id="openBtn" onclick="startOpen()" style="width:100%;justify-content:center;padding:8px">
+            开始开团
+          </button>
+          <div class="open-progress" id="openProgress" style="display:none">
+            <div class="op-stats-row">
+              <span class="op-muted" id="opIdx">0/0</span>
+              <span class="op-ok">✓ <strong id="opOk">0</strong></span>
+              <span class="op-fail">✗ <strong id="opFail">0</strong></span>
+            </div>
+            <div class="progress-track"><div class="progress-fill" id="openBar"></div></div>
+            <div class="stream" style="height:160px" id="openLog"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 历史记录 -->
+    <div class="panel" id="panel-history">
+      <div class="toolbar">
+        <span class="stat-text" id="logStat"></span>
+        <div class="toolbar-right">
+          <button class="btn btn-danger" onclick="clearLog()">清空记录</button>
+        </div>
+      </div>
+      <div class="history-wrap" id="histWrap">
+        <div class="empty" id="histEmpty">暂无记录</div>
+      </div>
+    </div>
+
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<!-- Config Modal -->
+<div class="overlay" id="overlay" onclick="maybeCloseModal(event)">
+  <div class="modal">
+    <h2>账号配置</h2>
+    <div class="token-status" id="tokenStatus"></div>
+    <div class="mfield">
+      <label>JWT Token</label>
+      <textarea id="cfgToken" placeholder="eyJhbGciOiJIUzUxMiJ9..."></textarea>
+    </div>
+    <div class="mfield">
+      <label>GH ID</label>
+      <input type="text" id="cfgGhId" placeholder="PsXXXXXX_bsXXXXXX_xxxxxxxx">
+    </div>
+    <div class="mfield">
+      <label>UID</label>
+      <input type="text" id="cfgUid" placeholder="100000000">
+    </div>
+    <div class="mfooter">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-primary" onclick="saveConfig()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── Category keyword map (client-side filter) ──
+const CAT_KEYWORDS = {
+  368: ['食品','饮料','粮油','零食','茶','酒','酱','米','面','糖','咖啡','汤','凉皮','香肠','腊肉','熟食','卤','饼干','坚果','花生'],
+  369: ['生鲜','水果','蔬菜','果蔬','肉','蛋','奶','海鲜','鱼','虾','牛肉','猪肉','鸡肉','鲜'],
+  370: ['家居','百货','清洁','洗涤','卫生','纸巾','垃圾袋','拖把','抹布','地垫'],
+  371: ['厨房','锅','碗','铲','刀','筷','厨具','餐具','烤箱','榨汁','炒'],
+  374: ['服装','服饰','女装','男装','衣','裤','裙','鞋','包','帽','袜','内衣','外套','上衣','连衣','T恤','卫衣','棉衣','羽绒','牛仔','风衣','睡衣','运动服'],
+  377: ['珠宝','饰品','项链','戒指','手链','耳环','玉','黄金','白银','翡翠'],
+  380: ['保健','健康','营养','维生素','中药','补品','减肥','瘦身','药'],
+  379: ['鲜花','绿植','花束','植物','盆栽','多肉'],
+  376: ['文创','礼品','礼盒','玩具','文具','书','手工','工艺品'],
+  375: ['收纳','整理','储物','置物架','收纳盒','衣架'],
+  372: ['虚拟','会员','课程','服务','话费','充值','电子'],
+  378: ['母婴','婴儿','儿童','宝宝','孕','奶粉','纸尿裤','童装','玩具'],
+  381: ['美妆','护肤','面膜','口红','粉底','精华','防晒','香水','彩妆','洗面','护发','洗发','护手','BB霜'],
+};
+
+// ── State ──
+let activities = [];
+let selectedIds = new Set();   // selected in activities tab
+let openIds = new Set();       // selected in open tab
+let openFilterText = '';
+let openCatFilter = 'all';
+let categories = {};
+let selectedCats = new Set();  // populated after config loads
+let selectedUp = new Set([2, 3]);
+let sortCol = 'startTime';
+let sortDir = -1;  // -1 = desc, 1 = asc
+let filterText = '';
+let catFilter = 'all';  // 'all' | 'new' | 'reopen'
+
+// ── Init ──
+async function init() {
+  await refreshConfig();
+  const res = await fetch('/api/activities').then(r => r.json());
+  if (res.items?.length) {
+    activities = res.items;
+    renderActivities();
+    syncOpenTab();
+  } else {
+    document.getElementById('actEmpty').style.display = 'block';
+  }
+  loadLog();
+  // Close dropdowns on outside click
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.filter-wrap')) closeAllDd();
+  });
+  // Days change → auto re-fetch
+  document.getElementById('daysInput').addEventListener('change', () => startFetch());
+}
+
+async function refreshConfig() {
+  const res = await fetch('/api/config').then(r => r.json());
+  categories = res.categories || {};
+  updateTokenBadge(res.token_info);
+  document.getElementById('cfgGhId').value = res.config.gh_id || '';
+  document.getElementById('cfgUid').value = res.config.uid || '';
+  buildCatOptions();
+  return res;
+}
+
+function buildCatOptions() {
+  selectedCats = new Set(Object.keys(categories).map(Number));
+  const wrap = document.getElementById('cat-options');
+  wrap.innerHTML = Object.entries(categories).map(([id, name]) =>
+    `<label class="dd-item">
+      <input type="checkbox" checked data-cat="${id}" onchange="onCatChange(${id},this)"> ${esc(name)}
+    </label>`
+  ).join('');
+}
+
+// ── Token badge ──
+function updateTokenBadge(info) {
+  const dot = document.getElementById('tokenDot');
+  const label = document.getElementById('tokenLabel');
+  const status = document.getElementById('tokenStatus');
+  if (!info?.valid) {
+    dot.className = 'dot dot-red';
+    label.textContent = 'Token 已过期';
+    status.innerHTML = '<span style="color:var(--red)">Token 无效，请更新</span>';
+  } else {
+    const s = info.remaining_seconds;
+    const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600);
+    if (s < 86400) {
+      dot.className = 'dot dot-yellow';
+      label.textContent = `剩余 ${h}h`;
+    } else {
+      dot.className = 'dot dot-green';
+      label.textContent = `剩余 ${d}天`;
+    }
+    status.innerHTML = `UID <strong>${info.uid}</strong> · 过期 <strong>${info.exp_str}</strong> · 剩余 <strong>${fmtSec(s)}</strong>`;
+  }
+}
+function fmtSec(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d>0?`${d}天${h}小时`:h>0?`${h}小时${m}分`:`${m}分`}
+
+// ── Sidebar nav ──
+function switchPanel(name, el) {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panel-'+name).classList.add('active');
+  if (name === 'open') renderOpenTab();
+  if (name === 'history') loadLog();
+}
+
+// ── Dropdowns ──
+function toggleDd(ddId, chipId) {
+  const dd = document.getElementById(ddId);
+  const chip = document.getElementById(chipId);
+  const isOpen = dd.classList.contains('open');
+  closeAllDd();
+  if (!isOpen) { dd.classList.add('open'); chip.classList.add('open'); }
+}
+function closeAllDd() {
+  document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('open'));
+}
+
+// Category filter
+function onCatAllChange(cb) {
+  document.querySelectorAll('[data-cat]').forEach(c => { c.checked = cb.checked; });
+  if (cb.checked) selectedCats = new Set(Object.keys(categories).map(Number));
+  else selectedCats.clear();
+  updateCatChip();
+}
+function onCatChange(id, cb) {
+  if (cb.checked) selectedCats.add(id); else selectedCats.delete(id);
+  const allCb = document.getElementById('cat-all');
+  const total = Object.keys(categories).length;
+  allCb.checked = selectedCats.size === total;
+  allCb.indeterminate = selectedCats.size > 0 && selectedCats.size < total;
+  updateCatChip();
+  renderActivities();
+}
+function updateCatChip() {
+  const total = Object.keys(categories).length;
+  const cc = document.getElementById('cc-cat');
+  if (selectedCats.size === total || selectedCats.size === 0) { cc.style.display='none'; }
+  else { cc.style.display=''; cc.textContent = selectedCats.size; }
+}
+
+// Upstream filter
+function onUpChange(id, cb) {
+  if (cb.checked) selectedUp.add(id); else selectedUp.delete(id);
+  const cc = document.getElementById('cc-up');
+  cc.style.display = selectedUp.size < 2 ? '' : 'none';
+  if (selectedUp.size < 2) cc.textContent = selectedUp.size;
+  renderActivities();
+}
+
+// ── Fetch ──
+async function startFetch() {
+  closeAllDd();
+  const btn = document.getElementById('fetchBtn');
+  btn.disabled = true; btn.textContent = '拉取中…';
+
+  const prog = document.getElementById('fetchProgress');
+  const bar = document.getElementById('fetchBar');
+  const log = document.getElementById('fetchLog');
+  const status = document.getElementById('fetchStatus');
+  prog.classList.add('show');
+  bar.style.width = '0%'; bar.classList.remove('done');
+  log.innerHTML = '';
+  status.textContent = '正在连接...';
+
+  const body = {
+    category_ids: [],
+    upstream_types: [2, 3],
+    days_range: Number(document.getElementById('daysInput').value) || 7,
+  };
+
+  let reader;
+  try {
+    const resp = await fetch('/api/fetch', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({detail: resp.statusText}));
+      addLine(log, '✗ ' + (err.detail || resp.statusText), 'err');
+      btn.disabled = false; btn.textContent = '刷新列表'; return;
+    }
+    reader = resp.body.getReader();
+  } catch(e) {
+    addLine(log, '连接失败: '+e, 'err');
+    btn.disabled = false; btn.textContent = '刷新列表'; return;
+  }
+
+  const dec = new TextDecoder(); let buf = '';
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, {stream:true});
+    const parts = buf.split('\n\n'); buf = parts.pop();
+    for (const p of parts) {
+      if (!p.startsWith('data: ')) continue;
+      try { onFetchEvent(JSON.parse(p.slice(6)), log, bar, status); } catch {}
+    }
+  }
+  btn.disabled = false; btn.textContent = '刷新列表';
+}
+
+function onFetchEvent(ev, log, bar, status) {
+  if (ev.type === 'page') {
+    status.textContent = `拉取中 (页 ${ev.page})，已收 ${ev.total} 条`;
+    addLine(log, `▸ 页 ${ev.page}，累计 ${ev.total} 条`, 'info');
+  } else if (ev.type === 'progress') {
+    const t = ev.grand_total || ev.total;
+    if (t) bar.style.width = Math.min((ev.total/t*100),99) + '%';
+    addLine(log, `  +${ev.added} → ${ev.total} 条`, 'info');
+  } else if (ev.type === 'error') {
+    addLine(log, '✗ ' + ev.msg, 'err');
+  } else if (ev.type === 'done') {
+    bar.style.width = '100%'; bar.classList.add('done');
+    status.textContent = `完成 — 可用 ${ev.total_available} 条`;
+    addLine(log, `✓ 原始 ${ev.total_raw} → 已帮卖过滤 ${ev.removed_helped} → 去重 ${ev.removed_dup} → 剩余 ${ev.total_available}`, 'ok');
+    if (ev.items) {
+      activities = ev.items;
+      renderActivities();
+      syncOpenTab();
+    }
+  }
+}
+
+function addLine(container, text, cls) {
+  const d = document.createElement('div');
+  d.className = `l l-${cls||'info'}`; d.textContent = text;
+  container.appendChild(d);
+  container.scrollTop = container.scrollHeight;
+}
+
+// ── Category filter ──
+function setCatFilter(val) {
+  catFilter = (val === catFilter && val !== 'all') ? 'all' : val;
+  ['all','new','reopen'].forEach(k => {
+    const el = document.getElementById('cf-'+k);
+    el.style.borderColor = k === val ? 'var(--accent)' : '';
+    el.style.color = k === val ? 'var(--accent)' : '';
+  });
+  renderActivities();
+}
+
+// ── Sort & Filter ──
+function setSort(col) {
+  if (sortCol === col) sortDir *= -1;
+  else { sortCol = col; sortDir = -1; }
+  renderActivities();
+}
+function onSearch(val) {
+  filterText = val.toLowerCase();
+  renderActivities();
+}
+function getFiltered() {
+  let items = activities;
+  if (catFilter !== 'all') items = items.filter(a => a.category === catFilter);
+  // category keyword filter
+  const totalCats = Object.keys(categories).length;
+  if (selectedCats.size > 0 && selectedCats.size < totalCats) {
+    items = items.filter(a =>
+      [...selectedCats].some(catId => {
+        const kws = CAT_KEYWORDS[catId] || [];
+        return kws.some(kw => (a.actName||'').includes(kw) || (a.goodsName||'').includes(kw));
+      })
+    );
+  }
+  // upstream type filter
+  if (selectedUp.size > 0 && selectedUp.size < 2) {
+    items = items.filter(a => !a.upStreamType || selectedUp.has(a.upStreamType));
+  }
+  if (filterText) {
+    items = items.filter(a =>
+      (a.actName||'').toLowerCase().includes(filterText) ||
+      (a.goodsName||'').toLowerCase().includes(filterText) ||
+      (a.ghName||'').toLowerCase().includes(filterText)
+    );
+  }
+  return [...items].sort((a, b) => {
+    const av = a[sortCol] ?? 0, bv = b[sortCol] ?? 0;
+    return av < bv ? -sortDir : av > bv ? sortDir : 0;
+  });
+}
+function updateSortHeaders() {
+  document.querySelectorAll('th.sortable').forEach(th => {
+    th.classList.remove('sort-active');
+    const col = th.id.replace('th-', '');
+    if (col === sortCol) {
+      th.classList.add('sort-active');
+      th.dataset.arrow = sortDir === -1 ? ' ↓' : ' ↑';
+      th.textContent = th.textContent.replace(/ [↑↓]$/, '') + (sortDir === -1 ? ' ↓' : ' ↑');
+    } else {
+      th.textContent = th.textContent.replace(/ [↑↓]$/, '');
+    }
+  });
+}
+
+// ── Activities table ──
+function renderActivities() {
+  const body = document.getElementById('actBody');
+  const empty = document.getElementById('actEmpty');
+  const stat = document.getElementById('actStat');
+  const badge = document.getElementById('badge-activities');
+
+  if (!activities.length) {
+    body.innerHTML = ''; empty.style.display = 'block'; return;
+  }
+  updateSortHeaders();
+  const visible = getFiltered();
+  empty.style.display = visible.length ? 'none' : 'block';
+  badge.textContent = activities.length;
+  const reopenCnt = activities.filter(a => a.category === 'reopen').length;
+  const rcEl = document.getElementById('reopen-count');
+  if (reopenCnt) { rcEl.style.display = ''; rcEl.textContent = reopenCnt; }
+  else rcEl.style.display = 'none';
+  stat.innerHTML = filterText || catFilter !== 'all'
+    ? `<strong>${visible.length}</strong> / ${activities.length} 条`
+    : `共 <strong>${activities.length}</strong> 条`;
+
+  body.innerHTML = visible.map(a => `
+    <tr>
+      <td><input type="checkbox" class="act-cb" data-id="${a.actId}"
+        ${selectedIds.has(a.actId)?'checked':''} onchange="onActCb(this)"></td>
+      <td style="white-space:nowrap;font-size:11px;color:var(--text3);font-variant-numeric:tabular-nums">
+        ${esc(a.startTimeStr||'—')}
+        ${a.category==='reopen'?`<div style="color:var(--yellow);margin-top:2px">复开${a.daysSinceOpen!=null?' · '+a.daysSinceOpen+'天前':''}</div>`:''}
+      </td>
+      <td class="cell-name">
+        <div class="name-main">${esc(a.actName)}</div>
+        ${a.bestActId?`<div class="name-sub" style="color:var(--yellow)">↑ 同款最优 ${a.bestOrders}单 (actId:${a.bestActId})</div>`:''}
+      </td>
+      <td class="num">¥${(a.price||0).toFixed(0)}</td>
+      <td class="num earn">¥${(a.followEarning||0).toFixed(2)}</td>
+      <td class="num">${a.totalOrders||0}</td>
+      <td class="cell-name">
+        <div class="name-main" style="font-size:12px">${esc(a.goodsName)}</div>
+        ${a.commissionPct?`<div class="name-sub">佣金率 ${esc(a.commissionPct)}</div>`:''}
+      </td>
+      <td>${esc(a.ghName||'')}${a.starGh?' <span class="tag tag-star">星</span>':''}</td>
+    </tr>`).join('');
+  updateSelUI();
+}
+
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+
+function onActCb(cb) {
+  const id = Number(cb.dataset.id);
+  if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+  updateSelUI();
+}
+function toggleSelectAll(cb) {
+  document.querySelectorAll('.act-cb').forEach(el => {
+    el.checked = cb.checked;
+    const id = Number(el.dataset.id);
+    if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
+  });
+  updateSelUI();
+}
+function selectAllActs() {
+  activities.forEach(a => selectedIds.add(a.actId));
+  document.querySelectorAll('.act-cb').forEach(cb => cb.checked = true);
+  document.getElementById('selectAll').checked = true;
+  updateSelUI();
+}
+function clearSel() {
+  selectedIds.clear();
+  document.querySelectorAll('.act-cb').forEach(cb => cb.checked = false);
+  document.getElementById('selectAll').checked = false;
+  document.getElementById('selectAll').indeterminate = false;
+  updateSelUI();
+}
+function updateSelUI() {
+  const cbs = document.querySelectorAll('.act-cb');
+  const checked = [...cbs].filter(c => c.checked).length;
+  const sa = document.getElementById('selectAll');
+  sa.indeterminate = checked > 0 && checked < cbs.length;
+  sa.checked = cbs.length > 0 && checked === cbs.length;
+  const hasAny = selectedIds.size > 0;
+  document.getElementById('selAllBtn').style.display = hasAny ? 'none' : '';
+  document.getElementById('clearSelBtn').style.display = hasAny ? '' : 'none';
+  document.getElementById('toOpenBtn').style.display = hasAny ? '' : 'none';
+  if (hasAny) document.getElementById('toOpenBtn').textContent = `开 ${selectedIds.size} 个 →`;
+}
+
+function goToOpen() {
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('nav-open').classList.add('active');
+  document.getElementById('panel-open').classList.add('active');
+  renderOpenTab();
+}
+
+// ── Open tab ──
+function syncOpenTab() {
+  // When activities refresh, reset open selection to all
+  openIds = new Set(activities.map(a => a.actId));
+  renderOpenTab();
+}
+
+function renderOpenTab() {
+  let base = selectedIds.size > 0
+    ? activities.filter(a => selectedIds.has(a.actId))
+    : activities;
+
+  if (openIds.size === 0 || !activities.length) {
+    openIds = new Set(base.map(a => a.actId));
+  }
+
+  const body = document.getElementById('openBody');
+  const empty = document.getElementById('openEmpty');
+  const badge = document.getElementById('badge-open');
+
+  if (!base.length) {
+    body.innerHTML = ''; empty.style.display = 'block';
+    updateOpenStat(); return;
+  }
+  badge.textContent = base.length;
+
+  // apply local filters (display only, doesn't affect openIds selection)
+  let visible = base;
+  if (openCatFilter !== 'all') visible = visible.filter(a => a.category === openCatFilter);
+  if (openFilterText) {
+    const q = openFilterText.toLowerCase();
+    visible = visible.filter(a =>
+      (a.actName||'').toLowerCase().includes(q) ||
+      (a.goodsName||'').toLowerCase().includes(q) ||
+      (a.ghName||'').toLowerCase().includes(q)
+    );
+  }
+
+  empty.style.display = visible.length ? 'none' : 'block';
+  body.innerHTML = visible.map(a => `
+    <tr>
+      <td><input type="checkbox" class="open-cb" data-id="${a.actId}"
+        ${openIds.has(a.actId)?'checked':''} onchange="onOpenCb(this)"></td>
+      <td style="white-space:nowrap;font-size:11px;color:var(--text3);font-variant-numeric:tabular-nums">
+        ${esc(a.startTimeStr||'—')}
+        ${a.category==='reopen'?`<div style="color:var(--yellow);margin-top:2px">复开${a.daysSinceOpen!=null?' · '+a.daysSinceOpen+'天前':''}</div>`:''}
+      </td>
+      <td class="cell-name">
+        <div class="name-main">${esc(a.actName)}</div>
+        <div class="name-sub">${esc(a.goodsName)}</div>
+      </td>
+      <td class="num earn">¥${(a.followEarning||0).toFixed(2)}</td>
+      <td class="num">${a.totalOrders||0}</td>
+      <td>${esc(a.ghName||'')}</td>
+    </tr>`).join('');
+  updateOpenStat();
+}
+
+function setOpenCatFilter(val) {
+  openCatFilter = (val === openCatFilter && val !== 'all') ? 'all' : val;
+  ['all','new','reopen'].forEach(k => {
+    const el = document.getElementById('ocf-'+k);
+    el.style.borderColor = k === openCatFilter ? 'var(--accent)' : '';
+    el.style.color = k === openCatFilter ? 'var(--accent)' : '';
+  });
+  renderOpenTab();
+}
+function onOpenSearch(val) {
+  openFilterText = val.toLowerCase();
+  renderOpenTab();
+}
+
+function onOpenCb(cb) {
+  const id = Number(cb.dataset.id);
+  if (cb.checked) openIds.add(id); else openIds.delete(id);
+  updateOpenStat();
+}
+function openToggleAll(cb) {
+  document.querySelectorAll('.open-cb').forEach(el => {
+    el.checked = cb.checked;
+    const id = Number(el.dataset.id);
+    if (cb.checked) openIds.add(id); else openIds.delete(id);
+  });
+  updateOpenStat();
+}
+function openSelectAll() {
+  document.querySelectorAll('.open-cb').forEach(el => { el.checked = true; openIds.add(Number(el.dataset.id)); });
+  document.getElementById('openAllCb').checked = true;
+  updateOpenStat();
+}
+function openClearSel() {
+  openIds.clear();
+  document.querySelectorAll('.open-cb').forEach(el => el.checked = false);
+  document.getElementById('openAllCb').checked = false;
+  document.getElementById('openAllCb').indeterminate = false;
+  updateOpenStat();
+}
+function updateOpenStat() {
+  document.getElementById('openStatBox').innerHTML = `已选 <strong>${openIds.size}</strong> 个活动`;
+  document.getElementById('openStat').innerHTML = `已选 <strong>${openIds.size}</strong> 个待开团`;
+}
+
+// ── Open groups ──
+async function startOpen() {
+  if (!openIds.size) { alert('请先勾选活动'); return; }
+  const dryRun = document.getElementById('dryRunToggle').checked;
+  const delay = Number(document.getElementById('delayInput').value) || 1;
+  const actIds = [...openIds];
+
+  const btn = document.getElementById('openBtn');
+  btn.disabled = true; btn.textContent = '开团中…';
+
+  const prog = document.getElementById('openProgress');
+  const log = document.getElementById('openLog');
+  const bar = document.getElementById('openBar');
+  prog.style.display = 'block';
+  log.innerHTML = '';
+  bar.style.width = '0%'; bar.classList.remove('done');
+  document.getElementById('opIdx').textContent = `0/${actIds.length}`;
+  document.getElementById('opOk').textContent = '0';
+  document.getElementById('opFail').textContent = '0';
+
+  let ok = 0, fail = 0;
+  const resp = await fetch('/api/open', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({act_ids: actIds, dry_run: dryRun, delay}),
+  });
+  const reader = resp.body.getReader();
+  const dec = new TextDecoder(); let buf = '';
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, {stream:true});
+    const parts = buf.split('\n\n'); buf = parts.pop();
+    for (const p of parts) {
+      if (!p.startsWith('data: ')) continue;
+      try {
+        const ev = JSON.parse(p.slice(6));
+        if (ev.type === 'item') {
+          document.getElementById('opIdx').textContent = `${ev.index}/${actIds.length}`;
+          bar.style.width = (ev.index/actIds.length*100).toFixed(1)+'%';
+          if (ev.ok) {
+            ok++; document.getElementById('opOk').textContent = ok;
+            addLine(log, `✓ [${ev.index}] ${ev.actName}${dryRun?' [dry]':' → '+ev.newActId}`, 'ok');
+          } else {
+            fail++; document.getElementById('opFail').textContent = fail;
+            addLine(log, `✗ [${ev.index}] ${ev.actName}: ${ev.error}`, 'err');
+          }
+        } else if (ev.type === 'done') {
+          bar.style.width = '100%'; bar.classList.add('done');
+          addLine(log, `完成：✓${ev.success}  ✗${ev.fail}`, 'ok');
+          if (!dryRun) loadLog();
+        }
+      } catch {}
+    }
+  }
+  btn.disabled = false; btn.textContent = '开始开团';
+}
+
+// ── Config modal ──
+function openModal() { document.getElementById('overlay').classList.add('open'); }
+function closeModal() { document.getElementById('overlay').classList.remove('open'); }
+function maybeCloseModal(e) { if (e.target === document.getElementById('overlay')) closeModal(); }
+async function saveConfig() {
+  const res = await fetch('/api/config', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      auth_token: document.getElementById('cfgToken').value.trim(),
+      gh_id: document.getElementById('cfgGhId').value.trim(),
+      uid: document.getElementById('cfgUid').value.trim(),
+    }),
+  }).then(r => r.json());
+  updateTokenBadge(res.token_info);
+  document.getElementById('cfgToken').value = '';
+  closeModal();
+}
+
+// ── History ──
+async function loadLog() {
+  const res = await fetch('/api/log').then(r => r.json());
+  const items = res.items || [];
+  const wrap = document.getElementById('histWrap');
+  const stat = document.getElementById('logStat');
+  const badge = document.getElementById('badge-history');
+  badge.textContent = items.length;
+  stat.innerHTML = `共 <strong>${items.length}</strong> 条`;
+  if (!items.length) {
+    wrap.innerHTML = '<div class="empty" id="histEmpty">暂无记录</div>'; return;
+  }
+  wrap.innerHTML = items.map(e => `
+    <div class="hist-row">
+      <span class="hist-time">${e.time||''}</span>
+      <span class="hist-status">${e.status==='ok'?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--red)">✗</span>'}</span>
+      <span class="hist-name">${esc(e.actName||'')}</span>
+      ${e.newActId?`<span class="hist-id">${e.newActId}</span>`:''}
+    </div>`).join('');
+}
+async function clearLog() {
+  if (!confirm('确认清空所有历史记录？')) return;
+  await fetch('/api/log', {method:'DELETE'});
+  loadLog();
+}
+
+init();
+</script>
+</body>
+</html>
