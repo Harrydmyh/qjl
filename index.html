@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>开团助手</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
@@ -198,6 +198,286 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
 /* ── Empty ── */
 .empty{text-align:center;padding:64px 16px;color:var(--text3);font-size:13px}
 .empty svg{margin-bottom:12px;opacity:.3}
+
+/* ── Mobile / Responsive ── */
+@media (max-width: 768px) {
+  :root {
+    --sat: env(safe-area-inset-top, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+  }
+  body {
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .topbar {
+    height: calc(48px + var(--sat));
+    padding-top: var(--sat);
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .topbar .logo {
+    font-size: 14px;
+  }
+  .token-pill {
+    padding: 4px 8px;
+    gap: 5px;
+  }
+  .token-pill .label {
+    font-size: 11px;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Bottom Navigation */
+  .layout {
+    flex-direction: column;
+    height: calc(100% - 48px - var(--sat));
+    height: calc(100dvh - 48px - var(--sat));
+    overflow: hidden;
+  }
+  .main {
+    order: 1;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .sidebar {
+    order: 2;
+    width: 100%;
+    height: auto;
+    min-height: 52px;
+    border-right: none;
+    border-top: 1px solid var(--border);
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: center;
+    padding: 4px 6px;
+    padding-bottom: max(6px, var(--sab));
+    background: var(--surface);
+    z-index: 100;
+    flex-shrink: 0;
+    overflow-y: visible;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
+  }
+  .sidebar-section {
+    display: none;
+  }
+  .nav-item {
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    padding: 5px 2px;
+    margin: 0 2px;
+    border-radius: var(--radius);
+    font-size: 11px;
+    justify-content: center;
+    text-align: center;
+    position: relative;
+  }
+  .nav-item svg {
+    width: 18px;
+    height: 18px;
+  }
+  .nav-item .badge {
+    position: absolute;
+    top: 2px;
+    right: calc(50% - 22px);
+    margin-left: 0;
+    font-size: 10px;
+    padding: 0 4px;
+    min-width: 16px;
+    height: 15px;
+    line-height: 15px;
+  }
+
+  /* Toolbar */
+  .toolbar {
+    padding: 8px 10px;
+    gap: 6px;
+    flex-wrap: wrap;
+    max-height: 220px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .filter-chip {
+    padding: 4px 8px;
+    font-size: 11px;
+    min-height: 28px;
+  }
+  .btn {
+    padding: 5px 10px;
+    font-size: 12px;
+    min-height: 30px;
+  }
+  #searchInput, #openSearchInput {
+    width: 100% !important;
+    order: 10;
+    font-size: 14px !important;
+  }
+  #fetchBtn {
+    order: 11;
+    flex-grow: 1;
+    justify-content: center;
+  }
+  .toolbar-right {
+    width: 100%;
+    margin-left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
+    margin-top: 2px;
+    order: 20;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  #actStat, #openStat {
+    font-size: 11px;
+    width: 100%;
+  }
+  #toOpenBtn {
+    margin-left: auto;
+  }
+
+  /* Dropdown Bottom-Sheet on Mobile */
+  .dropdown {
+    position: fixed !important;
+    top: auto !important;
+    bottom: calc(56px + var(--sab)) !important;
+    left: 10px !important;
+    right: 10px !important;
+    width: auto !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    max-height: 55vh !important;
+    overflow-y: auto !important;
+    z-index: 1000 !important;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.3) !important;
+    border-radius: 12px !important;
+    padding: 8px !important;
+  }
+  .dd-item {
+    padding: 9px 10px;
+    font-size: 13px;
+  }
+  .dd-item input[type=checkbox] {
+    width: 16px;
+    height: 16px;
+  }
+
+  /* Table */
+  .table-wrap, .open-table {
+    flex: 1;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  table {
+    min-width: 680px;
+  }
+  thead th:first-child,
+  tbody td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 3;
+    background: var(--surface);
+    box-shadow: 2px 0 6px rgba(0, 0, 0, 0.05);
+  }
+  thead th:first-child {
+    z-index: 5;
+  }
+  tbody tr:hover td:first-child {
+    background: #EEF1FA;
+  }
+
+  /* Open Panel */
+  .open-wrap {
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .open-side {
+    width: 100% !important;
+    border-left: none !important;
+    border-top: 1px solid var(--border) !important;
+    padding: 10px 14px !important;
+    max-height: 48vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    flex-shrink: 0;
+    background: var(--surface);
+    box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.05);
+    gap: 8px;
+  }
+  .open-params-box {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 12px;
+    align-items: center;
+  }
+  .open-params-box .side-label {
+    grid-column: 1 / -1;
+    margin-bottom: 2px;
+  }
+  .open-params-box p {
+    grid-column: 1 / -1;
+    margin-top: 2px;
+  }
+
+  /* History */
+  .hist-row {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+    padding: 10px 12px;
+  }
+  .hist-name {
+    width: 100%;
+    order: 1;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  .hist-status {
+    order: 2;
+  }
+  .hist-time {
+    order: 3;
+    width: auto;
+    flex: 1;
+    font-size: 11px;
+  }
+  .hist-id {
+    order: 4;
+    margin-left: auto;
+  }
+
+  /* Modal */
+  .overlay {
+    padding: 14px;
+    align-items: flex-end;
+  }
+  .modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    padding: 18px 16px !important;
+    border-radius: 14px !important;
+    max-height: 85vh;
+    overflow-y: auto;
+  }
+  .modal h2 {
+    font-size: 15px;
+    margin-bottom: 12px;
+  }
+  .mfield label {
+    font-size: 12px;
+  }
+  .mfield input, .mfield textarea {
+    font-size: 15px !important;
+  }
+}
 </style>
 </head>
 <body>
@@ -464,7 +744,7 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
         </div>
 
         <div class="open-side">
-          <div>
+          <div class="open-params-box">
             <div class="side-label">参数</div>
             <div class="side-field" style="margin-bottom:10px">
               <span>开团间隔</span>
