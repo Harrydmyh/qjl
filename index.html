@@ -121,6 +121,9 @@ td.num{color:var(--text2)}
 .tag{display:inline-flex;align-items:center;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:500}
 .tag-star{background:var(--yellow-bg);color:var(--yellow)}
 .tag-helped{background:var(--red-bg);color:var(--red)}
+.tag-noopen{background:var(--surface3);color:var(--text3);cursor:help}
+tr.row-noopen{opacity:.55}
+tr.row-noopen:hover{background:transparent}
 input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
 
 /* ── Progress ── */
@@ -140,11 +143,21 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
 /* ── Open panel ── */
 .open-wrap{flex:1;display:flex;overflow:hidden}
 .open-table{flex:1;overflow:auto}
-.open-side{width:220px;flex-shrink:0;border-left:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
+.open-side{width:252px;flex-shrink:0;border-left:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:14px;overflow-y:auto}
 .side-label{font-size:11px;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px}
 .side-field{font-size:13px;color:var(--text2);display:flex;align-items:center;justify-content:space-between}
 .side-input{width:80px;background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:5px 8px;border-radius:var(--radius);font-size:13px;font-family:inherit;text-align:right}
 .side-input:focus{outline:none;border-color:var(--accent)}
+select.side-input{appearance:none;cursor:pointer;text-align:center;padding:5px 4px}
+input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px 6px}
+.inline-sel{background:transparent;border:none;color:var(--text);font-size:13px;font-family:inherit;outline:none;cursor:pointer;padding:0}
+.inline-num{width:36px;background:transparent;border:none;color:var(--text);font-size:13px;font-family:inherit;text-align:center;outline:none}
+#rangeHint{white-space:nowrap}
+.inline-text{width:130px;background:transparent;border:none;color:var(--text);font-size:12px;font-family:inherit;outline:none}
+.inline-text::placeholder{color:var(--text3)}
+#ghKeywordChip.on{border-color:var(--accent);color:var(--accent)}
+#ghKwClear{display:none;cursor:pointer;color:var(--text3);line-height:1;padding:0 2px;font-size:13px}
+#ghKeywordChip.on #ghKwClear{display:inline}
 .toggle{position:relative;width:32px;height:18px}
 .toggle input{opacity:0;width:0;height:0}
 .tslider{position:absolute;inset:0;background:var(--surface3);border-radius:9px;cursor:pointer;transition:background .2s}
@@ -188,6 +201,11 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
 </style>
 </head>
 <body>
+
+<div id="connBanner" onclick="retryConn()"
+  style="display:none;position:fixed;top:0;left:0;right:0;z-index:9999;cursor:pointer;
+         background:var(--red-bg);color:var(--red);font-size:12px;padding:6px 12px;
+         text-align:center;border-bottom:1px solid var(--red)"></div>
 
 <div class="topbar">
   <div class="logo">开团<span>助手</span></div>
@@ -240,6 +258,32 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
           </div>
         </div>
 
+        <!-- 供应商筛选 -->
+        <div class="filter-wrap" id="fw-gh">
+          <div class="filter-chip" id="chip-gh" onclick="toggleDd('dd-gh','chip-gh')">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 5.5l6-3.5 6 3.5v7l-6 3.5-6-3.5z"/><path d="M2 5.5l6 3.5 6-3.5M8 9v6.5"/></svg>
+            供应商
+            <span id="ghSelLabel" style="color:var(--accent);font-size:11px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+            <span class="chip-count" id="cc-gh" style="display:none"></span>
+            <svg class="chip-arrow" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5l3 3 3-3"/></svg>
+          </div>
+          <div class="dropdown" id="dd-gh" style="min-width:250px">
+            <div style="padding:4px 6px 6px">
+              <input id="ghSearch" type="text" placeholder="搜索供应商…" oninput="onGhSearch(this.value)"
+                onclick="event.stopPropagation()" autocomplete="off"
+                style="width:100%;background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:5px 8px;border-radius:var(--radius);font-size:12px;font-family:inherit;outline:none">
+            </div>
+            <label class="dd-item dd-all">
+              <input type="checkbox" id="gh-all" checked onchange="onGhAllChange(this)"> 全部供应商
+            </label>
+            <hr class="dd-sep">
+            <div id="gh-options" style="max-height:300px;overflow-y:auto"></div>
+            <div id="gh-empty" style="display:none;padding:8px 10px;font-size:12px;color:var(--text3);line-height:1.5"></div>
+            <hr class="dd-sep" style="margin:3px 0 0">
+            <div id="ghFoot" style="padding:6px 10px 4px;font-size:11px;color:var(--text3);line-height:1.5"></div>
+          </div>
+        </div>
+
         <!-- 供应类型 -->
         <div class="filter-wrap" id="fw-up">
           <div class="filter-chip" id="chip-up" onclick="toggleDd('dd-up','chip-up')">
@@ -248,29 +292,82 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
             <span class="chip-count" id="cc-up" style="display:none"></span>
             <svg class="chip-arrow" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5l3 3 3-3"/></svg>
           </div>
-          <div class="dropdown" id="dd-up">
-            <label class="dd-item"><input type="checkbox" checked data-up="2" onchange="onUpChange(2,this)"> 跟团活动</label>
-            <label class="dd-item"><input type="checkbox" checked data-up="3" onchange="onUpChange(3,this)"> 供货品牌</label>
+          <div class="dropdown" id="dd-up" style="min-width:230px">
+            <label class="dd-item"><input type="checkbox" checked data-up="2" onchange="onUpChange(2,this)">
+              团长自营团 <span style="color:var(--text3);font-size:11px">· 不可开团</span></label>
+            <label class="dd-item"><input type="checkbox" checked data-up="3" onchange="onUpChange(3,this)">
+              品牌供货活动 <span style="color:var(--green);font-size:11px">· 可开团</span></label>
+            <hr class="dd-sep">
+            <div style="padding:6px 10px 4px;font-size:11px;color:var(--text3);line-height:1.55">
+              拉取范围（服务端筛选），切换后会自动重新拉取。<br>
+              只勾「品牌供货活动」拉到的就是 100% 可开团的。
+            </div>
           </div>
         </div>
 
-        <!-- 天数 -->
-        <div class="filter-chip" style="cursor:default;gap:7px">
+        <!-- 拉取范围：最近 N 天 / 每周某天往前 N 次 -->
+        <div class="filter-chip" style="cursor:default;gap:6px">
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="12" rx="1.5"/><path d="M1.5 6.5h13M5 1v3M11 1v3"/></svg>
-          近
-          <input id="daysInput" type="number" value="7" min="1" max="60"
-            style="width:38px;background:transparent;border:none;color:var(--text);font-size:13px;font-family:inherit;text-align:center;outline:none"
-            onclick="event.stopPropagation()">
-          天
+          <select id="rangeMode" class="inline-sel" onchange="onRangeModeChange()">
+            <option value="days">最近</option>
+            <option value="weekday">每周</option>
+          </select>
+          <span id="rangeDaysWrap" style="display:inline-flex;align-items:center;gap:4px">
+            <input id="daysInput" type="number" value="7" min="1" max="60" class="inline-num">
+            天
+          </span>
+          <span id="rangeWeekdayWrap" style="display:none;align-items:center;gap:4px">
+            <select id="weekdaySel" class="inline-sel" onchange="onRangeChange()">
+              <option value="1">周一</option><option value="2">周二</option>
+              <option value="3">周三</option><option value="4">周四</option>
+              <option value="5">周五</option><option value="6">周六</option>
+              <option value="0">周日</option>
+            </select>
+            <span style="color:var(--text3)">往前</span>
+            <input id="weeksInput" type="number" value="2" min="1" max="8" class="inline-num" onchange="onRangeChange()">
+            次
+          </span>
         </div>
+        <span class="stat-text" id="rangeHint" style="font-size:11px"></span>
+        <label class="filter-chip" style="cursor:pointer;gap:6px"
+               title="默认保留「我已经跟过团」的活动——复团的候选就是它们（实测可再开一次）。取消勾选则不保留。">
+          <input type="checkbox" id="includeFollowed" checked onchange="onIncludeFollowedChange()" onclick="event.stopPropagation()">
+          含已跟过
+        </label>
+        <!-- 定向供应商：服务端关键词搜索，只拉匹配的活动 -->
+        <div class="filter-chip" id="ghKeywordChip" style="cursor:text;gap:6px"
+             title="填供应商名（可多个，逗号/空格分隔）→ 只拉这几家的活动，不受「供应商筛选」列表是否已包含它们的影响。留空=拉全部。">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+          <input id="ghKeywordInput" class="inline-text" type="text"
+            placeholder="定向供应商（可选）"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();startFetch()}"
+            oninput="updateGhKeywordChip()">
+          <span id="ghKwClear" onclick="clearGhKeyword(event)" title="清空">✕</span>
+        </div>
+        <button class="btn btn-ghost" id="reopenPresetBtn" onclick="applyReopenPreset()"
+          style="display:none;font-size:11px;padding:4px 9px"
+          title="一键设为复团配置：供应类型只勾「品牌供货活动」+ 开团状态设为「可开团」+ 按总订单降序">复团预设</button>
 
         <!-- 类型筛选 -->
         <div style="display:flex;gap:4px" id="catFilter">
           <div class="filter-chip" id="cf-all" onclick="setCatFilter('all')" style="border-color:var(--accent);color:var(--accent)">全部</div>
           <div class="filter-chip" id="cf-new" onclick="setCatFilter('new')">新活动</div>
           <div class="filter-chip" id="cf-reopen" onclick="setCatFilter('reopen')">可复开 <span class="chip-count" id="reopen-count" style="display:none"></span></div>
+          <div class="filter-chip" id="cf-followed" onclick="setCatFilter('followed')" style="display:none"
+               title="我已经跟过团的活动——复团的候选，实测可以再开一次">已跟过 <span class="chip-count" id="followed-count" style="display:none"></span></div>
         </div>
-        <input id="searchInput" type="text" placeholder="搜索活动/商品名..."
+
+        <!-- 可开团状态 -->
+        <span class="stat-text" style="font-size:11px;white-space:nowrap">开团状态</span>
+        <div style="display:flex;gap:4px" id="openableFilter">
+          <div class="filter-chip" id="of-all" onclick="setOpenableFilter('all')" style="border-color:var(--accent);color:var(--accent)">全部</div>
+          <div class="filter-chip" id="of-yes" onclick="setOpenableFilter('yes')"
+               title="只留已开启跟团功能、能一键开团的活动">可开团</div>
+          <div class="filter-chip" id="of-no" onclick="setOpenableFilter('no')"
+               title="未开启跟团功能（followEarning 为空），开团必定失败">不可开团</div>
+        </div>
+
+        <input id="searchInput" type="text" placeholder="搜索活动/商品/供应商..."
           style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:5px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;width:180px;outline:none"
           oninput="onSearch(this.value)"
           onfocus="this.style.borderColor='var(--accent)'"
@@ -306,7 +403,7 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
               <th id="th-startTime" class="sortable" onclick="setSort('startTime')">时间</th>
               <th>活动名称</th>
               <th id="th-price" class="sortable num" onclick="setSort('price')">价格</th>
-              <th id="th-followEarning" class="sortable num" onclick="setSort('followEarning')">跟团佣金</th>
+              <th id="th-followEarning" class="sortable num" onclick="setSort('followEarning')" title="新活动显示跟团佣金；复开活动已结束、平台不再提供跟团佣金，显示供货佣金 earning">佣金</th>
               <th id="th-totalOrders" class="sortable num" onclick="setSort('totalOrders')">总订单</th>
               <th>商品</th>
               <th>供应商</th>
@@ -316,7 +413,10 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
         </table>
         <div class="empty" id="actEmpty">
           <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><br>
-          暂无数据，点击「刷新列表」拉取
+          <span id="actEmptyText">暂无数据，点击「刷新列表」拉取</span>
+          <div id="actEmptyClear" style="display:none;margin-top:12px">
+            <button class="btn btn-ghost" onclick="clearAllFilters()">清除筛选</button>
+          </div>
         </div>
       </div>
     </div>
@@ -328,6 +428,8 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
           <div class="filter-chip" id="ocf-all" onclick="setOpenCatFilter('all')" style="border-color:var(--accent);color:var(--accent)">全部</div>
           <div class="filter-chip" id="ocf-new" onclick="setOpenCatFilter('new')">新活动</div>
           <div class="filter-chip" id="ocf-reopen" onclick="setOpenCatFilter('reopen')">可复开</div>
+          <div class="filter-chip" id="ocf-followed" onclick="setOpenCatFilter('followed')"
+               title="我已经跟过团的活动（需在活动列表勾上「含已跟过」再拉取）">已跟过</div>
         </div>
         <input id="openSearchInput" type="text" placeholder="搜索..."
           style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:5px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;width:160px;outline:none"
@@ -348,7 +450,7 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
                 <th><input type="checkbox" id="openAllCb" onchange="openToggleAll(this)"></th>
                 <th>时间</th>
                 <th>活动名称</th>
-                <th class="num">跟团佣金</th>
+                <th class="num">佣金</th>
                 <th class="num">总订单</th>
                 <th>供应商</th>
               </tr>
@@ -357,7 +459,7 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
           </table>
           <div class="empty" id="openEmpty">
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 3"/></svg><br>
-            请先在活动列表拉取数据
+            <span id="openEmptyText">请先在活动列表拉取数据</span>
           </div>
         </div>
 
@@ -365,8 +467,25 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
           <div>
             <div class="side-label">参数</div>
             <div class="side-field" style="margin-bottom:10px">
-              <span>请求间隔 (s)</span>
-              <input class="side-input" id="delayInput" type="number" value="1" min="0.5" max="5" step="0.5">
+              <span>开团间隔</span>
+              <span style="display:flex;gap:4px;align-items:center">
+                <input class="side-input" id="delayInput" type="number" value="3" min="1" step="1" style="width:56px">
+                <select class="side-input" id="delayUnit" style="width:60px">
+                  <option value="60">分</option>
+                  <option value="1">秒</option>
+                </select>
+              </span>
+            </div>
+            <div class="side-field" style="margin-bottom:10px">
+              <span>随机浮动 ±</span>
+              <span style="display:flex;gap:4px;align-items:center">
+                <input class="side-input" id="jitterInput" type="number" value="5" min="0" step="1" style="width:56px">
+                <span style="font-size:12px;color:var(--text3);width:60px;text-align:center">秒</span>
+              </span>
+            </div>
+            <div style="margin-bottom:10px">
+              <div style="font-size:11px;color:var(--text3);margin-bottom:4px">开始时间（留空 = 立即）</div>
+              <input class="side-input" id="startAtInput" type="datetime-local" style="width:100%">
             </div>
             <div class="side-field">
               <span>Dry-run 模式</span>
@@ -375,19 +494,28 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
                 <div class="tslider"></div>
               </label>
             </div>
-            <p style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.6">开启后只验证模板，不真正创建活动</p>
+            <p style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.6">
+              实际间隔在 ±浮动 秒内随机。任务在服务端执行，关掉页面也会继续跑。
+            </p>
           </div>
           <hr class="hr">
           <div class="open-stats" id="openStatBox">已选 <strong>0</strong> 个</div>
-          <button class="btn btn-primary" id="openBtn" onclick="startOpen()" style="width:100%;justify-content:center;padding:8px">
-            开始开团
-          </button>
+          <div class="open-stats" id="openEta"></div>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-primary" id="openBtn" onclick="startOpen()" style="flex:1;justify-content:center;padding:8px">
+              开始开团
+            </button>
+            <button class="btn btn-danger" id="cancelJobBtn" onclick="cancelJob()" style="display:none;border-color:var(--red)">
+              取消
+            </button>
+          </div>
           <div class="open-progress" id="openProgress" style="display:none">
             <div class="op-stats-row">
               <span class="op-muted" id="opIdx">0/0</span>
               <span class="op-ok">✓ <strong id="opOk">0</strong></span>
               <span class="op-fail">✗ <strong id="opFail">0</strong></span>
             </div>
+            <div id="opState" class="op-muted" style="font-size:11px;margin-bottom:6px"></div>
             <div class="progress-track"><div class="progress-fill" id="openBar"></div></div>
             <div class="stream" style="height:160px" id="openLog"></div>
           </div>
@@ -412,6 +540,17 @@ input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:po
 </div><!-- /layout -->
 
 <!-- Config Modal -->
+<div class="overlay" id="uiDlg" style="z-index:6000">
+  <div class="modal" style="width:400px">
+    <h2 id="uiDlgTitle">提示</h2>
+    <div id="uiDlgMsg" style="font-size:13px;color:var(--text2);line-height:1.75;white-space:pre-wrap;margin-bottom:18px"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-ghost" id="uiDlgCancel" onclick="uiDlgClose(false)" style="display:none">取消</button>
+      <button class="btn btn-primary" id="uiDlgOk" onclick="uiDlgClose(true)">确定</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="overlay" onclick="maybeCloseModal(event)">
   <div class="modal">
     <h2>账号配置</h2>
@@ -457,38 +596,172 @@ const CAT_KEYWORDS = {
 let activities = [];
 let selectedIds = new Set();   // selected in activities tab
 let openIds = new Set();       // selected in open tab
+let openSkipped = 0;           // 因"不可开团 / 同款5天内已开"被跳过的条数（置灰不可勾选）
+let openSkipDetail = { noFollow: 0, cooldown: 0, total: 0 };
+let openFollowedCount = 0;     // 「已跟过」但可开、只是默认没勾选的条数
 let openFilterText = '';
 let openCatFilter = 'all';
 let categories = {};
 let selectedCats = new Set();  // populated after config loads
 let selectedUp = new Set([2, 3]);
+let ghAll = [];                // 全部供应商名（按条数降序）
+let ghCounts = {};             // 供应商 -> 条数
+let selectedGh = new Set();    // 选中的供应商名
+let ghFilterText = '';         // 供应商下拉里的搜索词
 let sortCol = 'startTime';
 let sortDir = -1;  // -1 = desc, 1 = asc
 let filterText = '';
 let catFilter = 'all';  // 'all' | 'new' | 'reopen'
+let openableFilter = 'all';  // 'all' | 'yes' | 'no' —— 是否可一键开团
+let rangeMode = 'days';      // 'days' = 最近 N 天 | 'weekday' = 每周某天往前 N 次
+let includeFollowed = true; // 拉取时是否保留「我已跟过」的活动（默认保留，取消勾选才排除）
 
 // ── Init ──
+// ── 连接异常提示（服务没起来时不要静默失败）──
+function showConnError(msg) {
+  const el = document.getElementById('connBanner');
+  if (!el) return;
+  el.textContent = '⚠️ ' + msg + '（点这里重试）';
+  el.style.display = 'block';
+}
+function hideConnError() {
+  const el = document.getElementById('connBanner');
+  if (el) el.style.display = 'none';
+}
+function retryConn() { init(); }
+
+// ── 页内弹窗 ──
+// 不用原生 alert/confirm：在嵌入式预览面板 / 被浏览器"阻止更多对话框"后，
+// 原生弹窗会被直接吞掉（confirm 静默返回 false），表现为"点了按钮没反应"。
+let _uiDlgResolve = null;
+function uiDlgShow(msg, title, withCancel) {
+  return new Promise(resolve => {
+    if (_uiDlgResolve) { const p = _uiDlgResolve; _uiDlgResolve = null; p(false); }
+    _uiDlgResolve = resolve;
+    document.getElementById('uiDlgTitle').textContent = title;
+    document.getElementById('uiDlgMsg').textContent = msg;
+    document.getElementById('uiDlgCancel').style.display = withCancel ? '' : 'none';
+    document.getElementById('uiDlg').classList.add('open');
+  });
+}
+function uiDlgClose(ok) {
+  document.getElementById('uiDlg').classList.remove('open');
+  const r = _uiDlgResolve; _uiDlgResolve = null;
+  if (r) r(ok);
+}
+function uiAlert(msg, title) { return uiDlgShow(msg, title || '提示', false); }
+function uiConfirm(msg, title) { return uiDlgShow(msg, title || '确认', true); }
+
+// 服务端一旦启用「访问密钥」（config.json 里的 access_key），未带密钥的请求会返回 401。
+// 这里统一拦一下给出看得懂的提示 —— 否则页面各处只会静默失败，很难排查。
+(function () {
+  const rawFetch = window.fetch.bind(window);
+  window.fetch = async function (...args) {
+    const res = await rawFetch(...args);
+    if (res.status === 401) showAccessNotice();
+    return res;
+  };
+})();
+function showAccessNotice() {
+  if (document.getElementById('accessNotice')) return;
+  const d = document.createElement('div');
+  d.id = 'accessNotice';
+  d.style.cssText = 'position:sticky;top:0;z-index:99;background:var(--red-bg);color:var(--red);'
+    + 'padding:10px 14px;font-size:12px;line-height:1.6;border-bottom:1px solid var(--border2)';
+  d.textContent = '需要访问密钥：请在网址最后加上 ?k=你的密钥 再打开本页（带一次就会记住，之后不用再加）。';
+  document.body.prepend(d);
+}
+
+// ── 后端地址 ──────────────────────────────────────────────────────────────
+// 同一份 index.html 两种用法都支持：
+//   · 本机打开（http://127.0.0.1:8765/）→ 同源，走相对路径，什么都不用配
+//   · 挂到 Vercel / CloudStudio 这类静态托管上 → 请求要跨域打回这台机器，
+//     用 ?api=https://你的后端地址 打开一次即可（会记住）
+// 优先级：?api= 参数 > localStorage > window.__QJL_API__ > 同源
+// 例：https://xxx.vercel.app/?api=https://mac.tailnet.ts.net&k=访问密钥
+const API_BASE = (function () {
+  const q = new URLSearchParams(location.search);
+  const fromUrl = (q.get('api') || '').trim().replace(/\/+$/, '');
+  if (fromUrl) { try { localStorage.setItem('qjl_api', fromUrl); } catch (e) {} return fromUrl; }
+  try { const s = localStorage.getItem('qjl_api'); if (s) return s; } catch (e) {}
+  return String(window.__QJL_API__ || '').replace(/\/+$/, '');
+})();
+// 访问密钥：跨域时**不能用 Cookie**（第三方 Cookie 会被浏览器拦），
+// 所以统一用请求头 X-Access-Key 带过去（后端三种带法都认）。
+const ACCESS_KEY = (function () {
+  const q = new URLSearchParams(location.search);
+  const fromUrl = (q.get('k') || '').trim();
+  if (fromUrl) { try { localStorage.setItem('qjl_key', fromUrl); } catch (e) {} return fromUrl; }
+  try { return localStorage.getItem('qjl_key') || ''; } catch (e) { return ''; }
+})();
+function apiUrl(path) { return API_BASE + path; }
+// 所有请求统一走这里：自动补后端地址 + 密钥头
+function apiFetch(path, opts) {
+  const o = Object.assign({}, opts || {});
+  const h = Object.assign({}, o.headers || {});
+  if (ACCESS_KEY) h['X-Access-Key'] = ACCESS_KEY;
+  o.headers = h;
+  return fetch(apiUrl(path), o);
+}
+document.addEventListener('keydown', e => {
+  const dlg = document.getElementById('uiDlg');
+  if (!dlg || !dlg.classList.contains('open')) return;
+  if (e.key === 'Enter') { e.preventDefault(); uiDlgClose(true); }
+  else if (e.key === 'Escape') { e.preventDefault(); uiDlgClose(false); }
+});
+
+let uiWired = false;   // init() 可能因「重试」被再次调用，本地监听只接一次
+
 async function init() {
-  await refreshConfig();
-  const res = await fetch('/api/activities').then(r => r.json());
-  if (res.items?.length) {
-    activities = res.items;
+  // ① 先接好纯本地的 UI 行为：任何一个网络请求失败，都不该让按钮/筛选整体失灵
+  if (!uiWired) {
+    uiWired = true;
+    document.addEventListener('click', e => {
+      if (!e.target.closest('.filter-wrap')) closeAllDd();
+    });
+    // Days change → auto re-fetch（仅"最近 N 天"模式下生效）
+    document.getElementById('daysInput').addEventListener('change', () => {
+      if (rangeMode === 'days') startFetch();
+    });
+    applyRangeMode(false);   // 初始化拉取范围 UI（不触发请求）
+    // 间隔/浮动变化 → 重算预计耗时
+    ['delayInput', 'jitterInput'].forEach(id =>
+      document.getElementById(id).addEventListener('input', updateEta));
+    document.getElementById('delayUnit').addEventListener('change', updateEta);
+  }
+
+  // ② 再拉数据；失败就明确提示，且不阻断后面的初始化
+  let failed = false;
+  try {
+    await refreshConfig();
+  } catch (e) { failed = true; }
+
+  try {
+    const res = await apiFetch('/api/activities').then(r => r.json());
+    activities = res.items || [];
+  } catch (e) { failed = true; }
+
+  if (failed) {
+    showConnError('连不上本地服务，请确认服务已启动（端口 8765）');
+  } else {
+    hideConnError();
+  }
+
+  if (activities.length) {
+    buildGhOptions();
     renderActivities();
     syncOpenTab();
   } else {
+    buildGhOptions();
     document.getElementById('actEmpty').style.display = 'block';
   }
-  loadLog();
-  // Close dropdowns on outside click
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.filter-wrap')) closeAllDd();
-  });
-  // Days change → auto re-fetch
-  document.getElementById('daysInput').addEventListener('change', () => startFetch());
+
+  loadLog().catch(() => {});
+  reattachJob();
 }
 
 async function refreshConfig() {
-  const res = await fetch('/api/config').then(r => r.json());
+  const res = await apiFetch('/api/config').then(r => r.json());
   categories = res.categories || {};
   updateTokenBadge(res.token_info);
   document.getElementById('cfgGhId').value = res.config.gh_id || '';
@@ -560,6 +833,7 @@ function onCatAllChange(cb) {
   if (cb.checked) selectedCats = new Set(Object.keys(categories).map(Number));
   else selectedCats.clear();
   updateCatChip();
+  renderActivities();
 }
 function onCatChange(id, cb) {
   if (cb.checked) selectedCats.add(id); else selectedCats.delete(id);
@@ -577,13 +851,234 @@ function updateCatChip() {
   else { cc.style.display=''; cc.textContent = selectedCats.size; }
 }
 
-// Upstream filter
+// Upstream type —— 服务端参数（接口返回里没有这个字段，无法在前端过滤）
+// 切换后必须重新拉取才生效，语义上属于"拉取范围"而非"视图筛选"
+function updateUpChip() {
+  const cc = document.getElementById('cc-up');
+  if (selectedUp.size === 0 || selectedUp.size === 2) cc.style.display = 'none';
+  else { cc.style.display = ''; cc.textContent = selectedUp.size; }
+}
 function onUpChange(id, cb) {
   if (cb.checked) selectedUp.add(id); else selectedUp.delete(id);
-  const cc = document.getElementById('cc-up');
-  cc.style.display = selectedUp.size < 2 ? '' : 'none';
-  if (selectedUp.size < 2) cc.textContent = selectedUp.size;
+  updateUpChip();
+  startFetch();
+}
+
+// ── 拉取范围：最近 N 天 / 每周某天往前 N 次（复团用） ──
+// 按周一为一周起点：weeksBack=1 → 上周那一天，2 → 上上周
+function nthWeekdayBack(wd, k) {
+  // 往前第 k 个「星期 wd」，**严格早于今天**。
+  // ⚠️ 不能锚定「本周一」再退整周 —— 那样会把本周里已经过去的那天整个跳过。
+  // 例：今天周六(09-19) 选周五 → 往前 1 次 = 昨天 09-18（本周五，已过）、
+  //     2 次 = 09-11、3 次 = 09-04。
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  let delta = (today.getDay() - wd + 7) % 7;
+  if (delta === 0) delta = 7;          // 今天正好就是该星期 → 从上一周算起
+  const d = new Date(today);
+  d.setDate(today.getDate() - delta - 7 * (k - 1));
+  return d;
+}
+function fmtYMD(d) {
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function fmtMD(ymd) {
+  const d = new Date(ymd + 'T00:00:00');
+  return `${ymd.slice(5)}(${'日一二三四五六'[d.getDay()]})`;
+}
+function rangeDates() {
+  if (rangeMode !== 'weekday') return [];
+  const wd = Number(document.getElementById('weekdaySel').value);
+  const n = Math.max(1, Math.min(8, Number(document.getElementById('weeksInput').value) || 2));
+  const out = [];
+  for (let i = 1; i <= n; i++) out.push(fmtYMD(nthWeekdayBack(wd, i)));
+  return out;
+}
+function updateRangeHint() {
+  const el = document.getElementById('rangeHint');
+  if (rangeMode !== 'weekday') { el.innerHTML = ''; return; }
+  const ds = rangeDates();
+  el.innerHTML = ds.length
+    ? `将拉取：<strong>${ds.map(fmtMD).join('</strong> · <strong>')}</strong>`
+    : '';
+}
+function applyRangeMode(doFetch) {
+  document.getElementById('rangeDaysWrap').style.display = rangeMode === 'days' ? 'inline-flex' : 'none';
+  document.getElementById('rangeWeekdayWrap').style.display = rangeMode === 'weekday' ? 'inline-flex' : 'none';
+  document.getElementById('reopenPresetBtn').style.display = rangeMode === 'weekday' ? '' : 'none';
+  if (rangeMode === 'weekday') { sortCol = 'totalOrders'; sortDir = -1; }
+  updateRangeHint();
+  if (doFetch) startFetch();
+}
+function onRangeModeChange() {
+  rangeMode = document.getElementById('rangeMode').value;
+  applyRangeMode(true);
+}
+function onIncludeFollowedChange() {
+  includeFollowed = document.getElementById('includeFollowed').checked;
+  if (!includeFollowed && catFilter === 'followed') catFilter = 'all';
+  startFetch();
+}
+
+// ── 定向供应商（服务端 keyword 搜索）──
+// 实测：feed 接口顶层的 keyword 参数会按供应商名匹配，传 "狂奔的小绵羊" 可精确
+// 命中该供应商的全部活动（10/10）；传部分词会跨供应商模糊匹配。
+// 这解决了「供应商筛选列表只来自已拉取数据、拉取范围没覆盖就选不到」的问题。
+function ghKeywords() {
+  const el = document.getElementById('ghKeywordInput');
+  if (!el) return [];
+  return el.value.split(/[,，、;；\s]+/).map(s => s.trim()).filter(Boolean);
+}
+function updateGhKeywordChip() {
+  const chip = document.getElementById('ghKeywordChip');
+  chip.classList.toggle('on', ghKeywords().length > 0);
+}
+function clearGhKeyword(ev) {
+  if (ev) ev.stopPropagation();
+  const el = document.getElementById('ghKeywordInput');
+  el.value = '';
+  updateGhKeywordChip();
+}
+function onRangeChange() {
+  updateRangeHint();
+  startFetch();
+}
+// 复团预设：只拉可开团的品牌供货活动 + 带上已跟过的（复团候选）+ 按单量降序
+async function applyReopenPreset() {
+  selectedUp = new Set([3]);
+  document.querySelectorAll('[data-up]').forEach(c => {
+    c.checked = Number(c.dataset.up) === 3;
+  });
+  updateUpChip();
+  includeFollowed = true;
+  const inc = document.getElementById('includeFollowed');
+  if (inc) inc.checked = true;
+  setOpenableFilter('yes');
+  sortCol = 'totalOrders'; sortDir = -1;
+  await startFetch();
+}
+
+// ── Supplier (ghName) filter ──
+function escAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                  .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function buildGhOptions() {
+  const prev = new Set(selectedGh);
+  const prevWasAll = ghAll.length === 0 || prev.size === 0 || prev.size === ghAll.length;
+
+  ghCounts = {};
+  activities.forEach(a => { const n = a.ghName || ''; ghCounts[n] = (ghCounts[n] || 0) + 1; });
+  ghAll = Object.keys(ghCounts).sort(
+    (a, b) => ghCounts[b] - ghCounts[a] || a.localeCompare(b));
+
+  if (prevWasAll) {
+    selectedGh = new Set(ghAll);                       // 之前就没筛 → 仍不筛
+  } else {
+    // 之前挑过供应商 → 跨拉取保留（仍存在的那些），方便固定跟几家
+    selectedGh = new Set(ghAll.filter(n => prev.has(n)));
+    if (selectedGh.size === 0) selectedGh = new Set(ghAll);
+  }
+  ghFilterText = '';
+  const s = document.getElementById('ghSearch');
+  if (s) s.value = '';
+  renderGhOptions();
+  updateGhChip();
+}
+function ghVisibleList() {
+  const q = ghFilterText.trim().toLowerCase();
+  return ghAll.filter(n => !q || n.toLowerCase().includes(q));
+}
+function renderGhOptions() {
+  const list = ghVisibleList();
+  const emptyEl = document.getElementById('gh-empty');
+  if (list.length) {
+    emptyEl.style.display = 'none';
+  } else {
+    emptyEl.style.display = 'block';
+    const kw = (ghFilterText || '').trim();
+    emptyEl.innerHTML = `当前这 <strong>${activities.length}</strong> 条数据里没有匹配的供应商。<br>`
+      + `供应商选项来自已拉取的数据；可以直接用平台搜索定向拉取这家：`
+      + (kw ? `<br><button class="btn btn-ghost" style="margin-top:6px;font-size:11px;padding:3px 8px"
+             onclick="useKeywordFromGhSearch()">用「${esc(kw)}」定向拉取</button>` : '');
+  }
+  document.getElementById('gh-options').innerHTML = list.map(n => `
+    <label class="dd-item">
+      <input type="checkbox" data-gh="${escAttr(n)}" ${selectedGh.has(n) ? 'checked' : ''} onchange="onGhChange(this)">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(n || '(无供应商)')}</span>
+      <span style="color:var(--text3);font-size:11px">${ghCounts[n] || 0}</span>
+    </label>`).join('');
+  const foot = document.getElementById('ghFoot');
+  if (foot) {
+    const kws = ghKeywords();
+    foot.innerHTML = `选项来自当前已拉取的 <strong>${activities.length}</strong> 条数据`
+      + `（${ghAll.length} 个供应商）`
+      + (kws.length ? `<br>本次为定向拉取：<strong>${esc(kws.join(' · '))}</strong>` : '');
+  }
+}
+// 从供应商搜索框直接转成「定向拉取」关键词并重新拉取
+function useKeywordFromGhSearch() {
+  const kw = (ghFilterText || '').trim();
+  if (!kw) return;
+  const el = document.getElementById('ghKeywordInput');
+  el.value = kw;
+  updateGhKeywordChip();
+  closeAllDd();
+  startFetch();
+}
+function ghFilterActive() {
+  return ghAll.length > 0 && selectedGh.size > 0 && selectedGh.size < ghAll.length;
+}
+function updateGhChip() {
+  const cc = document.getElementById('cc-gh');
+  const lbl = document.getElementById('ghSelLabel');
+  if (!ghFilterActive()) {
+    cc.style.display = 'none';
+    lbl.textContent = '';
+    return;
+  }
+  const names = [...selectedGh].sort(
+    (a, b) => (ghCounts[b] || 0) - (ghCounts[a] || 0));
+  const short = n => (n.length > 9 ? n.slice(0, 9) + '…' : n);
+  lbl.textContent = names.length <= 2
+    ? names.map(short).join('、')
+    : `${short(names[0])} 等 ${names.length} 个`;
+  cc.style.display = 'none';
+}
+function syncGhAllCb() {
+  const cb = document.getElementById('gh-all');
+  if (!cb) return;
+  const list = ghVisibleList();
+  const sel = list.filter(n => selectedGh.has(n)).length;
+  cb.checked = list.length > 0 && sel === list.length;
+  cb.indeterminate = sel > 0 && sel < list.length;
+}
+function onGhChange(cb) {
+  const n = cb.dataset.gh;
+  if (cb.checked) selectedGh.add(n); else selectedGh.delete(n);
+  syncGhAllCb();
+  updateGhChip();
   renderActivities();
+}
+function onGhAllChange(cb) {
+  ghVisibleList().forEach(n => { if (cb.checked) selectedGh.add(n); else selectedGh.delete(n); });
+  document.querySelectorAll('#gh-options input[data-gh]').forEach(el => { el.checked = cb.checked; });
+  updateGhChip();
+  renderActivities();
+}
+function onGhSearch(v) {
+  ghFilterText = v || '';
+  renderGhOptions();
+  syncGhAllCb();
+}
+function clearGhFilter() {
+  ghFilterText = '';
+  const s = document.getElementById('ghSearch');
+  if (s) s.value = '';
+  selectedGh = new Set(ghAll);
+  renderGhOptions();
+  syncGhAllCb();
+  updateGhChip();
 }
 
 // ── Fetch ──
@@ -603,13 +1098,16 @@ async function startFetch() {
 
   const body = {
     category_ids: [],
-    upstream_types: [2, 3],
+    upstream_types: selectedUp.size ? [...selectedUp] : [2, 3],
     days_range: Number(document.getElementById('daysInput').value) || 7,
+    dates: rangeDates(),
+    include_followed: includeFollowed,
+    keywords: ghKeywords(),
   };
 
   let reader;
   try {
-    const resp = await fetch('/api/fetch', {
+    const resp = await apiFetch('/api/fetch', {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body),
     });
     if (!resp.ok) {
@@ -649,10 +1147,24 @@ function onFetchEvent(ev, log, bar, status) {
     addLine(log, '✗ ' + ev.msg, 'err');
   } else if (ev.type === 'done') {
     bar.style.width = '100%'; bar.classList.add('done');
-    status.textContent = `完成 — 可用 ${ev.total_available} 条`;
-    addLine(log, `✓ 原始 ${ev.total_raw} → 已帮卖过滤 ${ev.removed_helped} → 去重 ${ev.removed_dup} → 剩余 ${ev.total_available}`, 'ok');
+    const parts = [`新 ${ev.new_count}`];
+    if (ev.followed_count) parts.push(`已跟过 ${ev.followed_count}`);
+    if (ev.reopen_count) parts.push(`复开 ${ev.reopen_count}`);
+    status.textContent = `完成 — 可用 ${ev.total_available} 条（${parts.join(' + ')}）`
+      + (ev.cooldown_count ? `，其中 ${ev.cooldown_count} 条同款 5 天内已开、暂不开团` : '');
+    addLine(log, `✓ 原始 ${ev.total_raw} → 丢弃 ${ev.dropped} → `
+      + `分桶 新 ${ev.new_raw} / 已跟过 ${ev.followed_raw} / 复开 ${ev.reopen_raw}`
+      + ` → 同款合并 −${ev.deduped} → 可用 ${ev.total_available}`, 'ok');
+    addLine(log, `   丢弃规则：已被帮卖过、且 5 天内我已开过（原活动 / 同款商品）`, 'info');
+    addLine(log, `   同款合并：goodsId 或商品名相同即视为同一款（跨供应商、跨分桶都合并；`
+      + `单量→跟团佣金→供货佣金 取最优）`, 'info');
+    if (ev.cooldown_count) {
+      addLine(log, `   ⏳ ${ev.cooldown_count} 条是「同款 ${ev.cooldown_days || 5} 天内已开」：`
+        + `列表里保留但不会开团，满 ${ev.cooldown_days || 5} 天自动恢复`, 'info');
+    }
     if (ev.items) {
       activities = ev.items;
+      buildGhOptions();
       renderActivities();
       syncOpenTab();
     }
@@ -669,10 +1181,10 @@ function addLine(container, text, cls) {
 // ── Category filter ──
 function setCatFilter(val) {
   catFilter = (val === catFilter && val !== 'all') ? 'all' : val;
-  ['all','new','reopen'].forEach(k => {
+  ['all','new','reopen','followed'].forEach(k => {
     const el = document.getElementById('cf-'+k);
-    el.style.borderColor = k === val ? 'var(--accent)' : '';
-    el.style.color = k === val ? 'var(--accent)' : '';
+    el.style.borderColor = k === catFilter ? 'var(--accent)' : '';
+    el.style.color = k === catFilter ? 'var(--accent)' : '';
   });
   renderActivities();
 }
@@ -687,34 +1199,143 @@ function onSearch(val) {
   filterText = val.toLowerCase();
   renderActivities();
 }
-function getFiltered() {
-  let items = activities;
-  if (catFilter !== 'all') items = items.filter(a => a.category === catFilter);
-  // category keyword filter
-  const totalCats = Object.keys(categories).length;
-  if (selectedCats.size > 0 && selectedCats.size < totalCats) {
-    items = items.filter(a =>
-      [...selectedCats].some(catId => {
-        const kws = CAT_KEYWORDS[catId] || [];
-        return kws.some(kw => (a.actName||'').includes(kw) || (a.goodsName||'').includes(kw));
-      })
-    );
+// ── Filter state helpers（统一定义"筛选是否生效"，供列表与计数共用）──
+// 注意：供应类型不在此列——它是服务端拉取参数，返回数据本身已按其过滤，
+// 前端不做二次过滤，也不参与"筛选后 X/Y"的计数。
+function catFilterActive() {
+  const total = Object.keys(categories).length;
+  return selectedCats.size > 0 && selectedCats.size < total;
+}
+function anyFilterActive() {
+  return catFilter !== 'all' || catFilterActive() || openableFilter !== 'all'
+      || ghFilterActive() || !!filterText;
+}
+function setOpenableFilter(val) {
+  openableFilter = val;
+  ['all','yes','no'].forEach(k => {
+    const el = document.getElementById('of-'+k);
+    el.style.borderColor = k === openableFilter ? 'var(--accent)' : '';
+    el.style.color = k === openableFilter ? 'var(--accent)' : '';
+  });
+  renderActivities();
+}
+function clearAllFilters() {
+  filterText = '';
+  document.getElementById('searchInput').value = '';
+  catFilter = 'all';
+  ['all','new','reopen','followed'].forEach(k => {
+    const el = document.getElementById('cf-'+k);
+    el.style.borderColor = k === 'all' ? 'var(--accent)' : '';
+    el.style.color = k === 'all' ? 'var(--accent)' : '';
+  });
+  openableFilter = 'all';
+  ['all','yes','no'].forEach(k => {
+    const el = document.getElementById('of-'+k);
+    el.style.borderColor = k === 'all' ? 'var(--accent)' : '';
+    el.style.color = k === 'all' ? 'var(--accent)' : '';
+  });
+  selectedCats = new Set(Object.keys(categories).map(Number));
+  document.querySelectorAll('[data-cat]').forEach(c => { c.checked = true; });
+  const allCb = document.getElementById('cat-all');
+  allCb.checked = true; allCb.indeterminate = false;
+  updateCatChip();
+  clearGhFilter();
+  renderActivities();
+}
+
+// 单一筛选谓词：ignoreCatChip=true 时忽略顶部"全部/新活动/可复开"chip
+// （用于计算"可复开"角标数量——它本身就是那个 chip 的候选池）
+function passFilters(a, ignoreCatChip) {
+  if (!ignoreCatChip && catFilter !== 'all' && a.category !== catFilter) return false;
+  // 是否可开团（任何情况下都生效，它是"能不能真的开出团"的前置条件）
+  // 口径 = 「现在能不能开」：既要有跟团关系，也要没落在「同款 5 天内已开」的冷却里
+  if (openableFilter !== 'all') {
+    const ok = !isOpenBlocked(a);
+    if (openableFilter === 'yes' ? !ok : ok) return false;
   }
-  // upstream type filter
-  if (selectedUp.size > 0 && selectedUp.size < 2) {
-    items = items.filter(a => !a.upStreamType || selectedUp.has(a.upStreamType));
+  // 供应商
+  if (ghFilterActive() && !selectedGh.has(a.ghName || '')) return false;
+  // 分类关键词：selectedCats 为全部或空时视为不过滤
+  if (catFilterActive()) {
+    const hit = [...selectedCats].some(catId => {
+      const kws = CAT_KEYWORDS[catId] || [];
+      return kws.some(kw => (a.actName||'').includes(kw) || (a.goodsName||'').includes(kw));
+    });
+    if (!hit) return false;
   }
+  // 搜索词
   if (filterText) {
-    items = items.filter(a =>
-      (a.actName||'').toLowerCase().includes(filterText) ||
-      (a.goodsName||'').toLowerCase().includes(filterText) ||
-      (a.ghName||'').toLowerCase().includes(filterText)
-    );
+    const ok = (a.actName||'').toLowerCase().includes(filterText) ||
+               (a.goodsName||'').toLowerCase().includes(filterText) ||
+               (a.ghName||'').toLowerCase().includes(filterText);
+    if (!ok) return false;
   }
-  return [...items].sort((a, b) => {
-    const av = a[sortCol] ?? 0, bv = b[sortCol] ?? 0;
+  return true;
+}
+// 复开活动已结束，平台不再提供跟团佣金（followEarning 恒为 0），
+// 它真正值钱的是供货佣金 earning；列表/排序都按对应口径取值。
+function commissionOf(a) {
+  return a.category === 'reopen' ? (a.earning || 0) : (a.followEarning || 0);
+}
+function commissionLabel(a) {
+  return a.category === 'reopen' ? '供货佣金' : '跟团佣金';
+}
+// 能否开团：帮卖广场会混进两类活动，只有"已开启跟团功能"的那类能开。
+// 新数据用 hasFollowRelation；旧数据没有这个字段时回退到 followEarning > 0。
+function canOpenAct(a) {
+  return a.hasFollowRelation !== undefined && a.hasFollowRelation !== null
+    ? !!a.hasFollowRelation
+    : (a.followEarning || 0) > 0;
+}
+// 「同款 5 天内已经开过」——不丢弃、仍然显示，但不参与开团（避免同一个商品被开两次）。
+// 判据由后端给出：actId / goodsId / 商品名 任一命中 open_log 且不足 5 天。
+function isRecentlyOpened(a) {
+  return !!a.recentlyOpened;
+}
+// 「现在能不能开」= 支持跟团开团 且 同款不在 5 天冷却内
+function isOpenBlocked(a) {
+  return !canOpenAct(a) || isRecentlyOpened(a);
+}
+// 「已跟过」= 平台字段 isFollow：你已经跟过/开过这个团。
+// 这是工具**唯一能看到**的「我自己开过」的证据 —— 它只能看到帮卖广场，
+// 看不到你自己在群接龙里开的团（实测自己账号的活动在广场里一条都没有）。
+// 所以这类行在开团面板里**默认不勾选**（仍可手动勾上再开），避免同一款被反复开。
+function isAlreadyFollowed(a) { return !!a.alreadyFollowed; }
+// 开团面板的默认勾选：能开 且 不是「已跟过」
+function isDefaultOpenPick(a) { return !isOpenBlocked(a) && !isAlreadyFollowed(a); }
+function openableCount(list) {
+  return list.reduce((n, a) => n + (isOpenBlocked(a) ? 0 : 1), 0);
+}
+// 跳过原因分类（用于文案：让用户知道为什么这几个没被开）
+function skipBreakdown(list) {
+  let noFollow = 0, cooldown = 0;
+  list.forEach(a => {
+    if (!canOpenAct(a)) noFollow++;
+    else if (isRecentlyOpened(a)) cooldown++;
+  });
+  return { noFollow, cooldown, total: noFollow + cooldown };
+}
+// 冷却中文案：「同款 3 天前开过」
+function cooldownText(a) {
+  const d = a.daysSinceOpen;
+  return d == null ? '同款 5 天内已开' : `同款 ${d} 天前已开`;
+}
+// 合并来源里显示的分类名（后端 altSources 里给的是 category key）
+const CAT_LABEL = { new: '新活动', followed: '已跟过', reopen: '可复开' };
+function sortValue(a, col) {
+  return col === 'followEarning' ? commissionOf(a) : (a[col] ?? 0);
+}
+function getFiltered() {
+  return activities.filter(a => passFilters(a, false)).sort((a, b) => {
+    const av = sortValue(a, sortCol), bv = sortValue(b, sortCol);
     return av < bv ? -sortDir : av > bv ? sortDir : 0;
   });
+}
+function getReopenCount() {
+  return activities.filter(a => a.category === 'reopen' && passFilters(a, true)).length;
+}
+function getFollowedCount() {
+  return activities.filter(a => a.category === 'followed' && passFilters(a, true)).length;
 }
 function updateSortHeaders() {
   document.querySelectorAll('th.sortable').forEach(th => {
@@ -734,54 +1355,139 @@ function updateSortHeaders() {
 function renderActivities() {
   const body = document.getElementById('actBody');
   const empty = document.getElementById('actEmpty');
+  const emptyText = document.getElementById('actEmptyText');
+  const emptyClear = document.getElementById('actEmptyClear');
   const stat = document.getElementById('actStat');
   const badge = document.getElementById('badge-activities');
 
-  if (!activities.length) {
-    body.innerHTML = ''; empty.style.display = 'block'; return;
-  }
   updateSortHeaders();
+
+  if (!activities.length) {
+    body.innerHTML = '';
+    badge.textContent = '0';
+    stat.innerHTML = '';
+    emptyText.textContent = '暂无数据，点击「刷新列表」拉取';
+    emptyClear.style.display = 'none';
+    empty.style.display = 'block';
+    const rcEl0 = document.getElementById('reopen-count');
+    rcEl0.style.display = 'none';
+    return;
+  }
+
   const visible = getFiltered();
+
+  // 勾选跟随当前视图：被筛掉的行自动取消勾选。
+  // 否则「开 N 个」会显示筛选结果之外的旧勾选（用户看到 11 条、按钮却写 31 个）。
+  let selDropped = 0;
+  if (selectedIds.size) {
+    const visIds = new Set(visible.map(a => a.actId));
+    [...selectedIds].forEach(id => {
+      if (!visIds.has(id)) { selectedIds.delete(id); selDropped++; }
+    });
+  }
+
   empty.style.display = visible.length ? 'none' : 'block';
+  if (!visible.length) {
+    emptyText.textContent = '没有符合当前筛选条件的活动';
+    emptyClear.style.display = 'block';
+  } else {
+    emptyClear.style.display = 'none';
+  }
   badge.textContent = activities.length;
-  const reopenCnt = activities.filter(a => a.category === 'reopen').length;
+
+  // 可复开 / 已跟过 数量随当前筛选条件联动
+  const reopenCnt = getReopenCount();
   const rcEl = document.getElementById('reopen-count');
   if (reopenCnt) { rcEl.style.display = ''; rcEl.textContent = reopenCnt; }
   else rcEl.style.display = 'none';
-  stat.innerHTML = filterText || catFilter !== 'all'
-    ? `<strong>${visible.length}</strong> / ${activities.length} 条`
-    : `共 <strong>${activities.length}</strong> 条`;
+
+  // 「已跟过」chip 只在数据里真有这类活动时才显示（即拉取时勾了「含已跟过」）
+  const followedTotal = activities.filter(a => a.category === 'followed').length;
+  const cfFollowed = document.getElementById('cf-followed');
+  if (cfFollowed) cfFollowed.style.display = followedTotal ? '' : 'none';
+  const followedCnt = getFollowedCount();
+  const fcEl = document.getElementById('followed-count');
+  if (fcEl) {
+    if (followedCnt) { fcEl.style.display = ''; fcEl.textContent = followedCnt; }
+    else fcEl.style.display = 'none';
+  }
+
+  // 计数：任何筛选生效时都显示 命中/总数，否则显示总数
+  stat.innerHTML = (anyFilterActive()
+    ? `筛选后 <strong>${visible.length}</strong> / 共 ${activities.length} 条`
+    : `共 <strong>${activities.length}</strong> 条`)
+    + (selDropped
+        ? ` <span style="color:var(--yellow)" title="这些活动已被当前筛选条件排除，不能再被开团">· 已取消 ${selDropped} 个筛外勾选</span>`
+        : '');
 
   body.innerHTML = visible.map(a => `
-    <tr>
+    <tr class="${canOpenAct(a)?'':'row-noopen'}">
       <td><input type="checkbox" class="act-cb" data-id="${a.actId}"
         ${selectedIds.has(a.actId)?'checked':''} onchange="onActCb(this)"></td>
       <td style="white-space:nowrap;font-size:11px;color:var(--text3);font-variant-numeric:tabular-nums">
         ${esc(a.startTimeStr||'—')}
         ${a.category==='reopen'?`<div style="color:var(--yellow);margin-top:2px">复开${a.daysSinceOpen!=null?' · '+a.daysSinceOpen+'天前':''}</div>`:''}
+        ${isAlreadyFollowed(a)?`<div style="margin-top:2px"><span class="tag" style="background:var(--accent-bg);color:var(--accent)" title="平台记录里你已经跟过/开过这个团。工具看不到你自己在群接龙里开的团，「已跟过」是唯一能拿到的证据——开团面板里这类行默认不勾选，确实要再开请手动勾上">已跟过</span></div>`:''}
+        ${canOpenAct(a)?'':`<div style="margin-top:2px"><span class="tag tag-noopen" title="该活动未开启跟团功能（followEarning 为空），开团必定失败">不可开团</span></div>`}
+        ${isRecentlyOpened(a)?`<div style="margin-top:2px"><span class="tag" style="background:var(--yellow-bg);color:var(--yellow)" title="这款商品（含同款的其他供应商版本）5 天内你已经开过团了，现在不会再开；满 5 天后自动恢复">${esc(cooldownText(a))}</span></div>`:''}
       </td>
       <td class="cell-name">
         <div class="name-main">${esc(a.actName)}</div>
         ${a.bestActId?`<div class="name-sub" style="color:var(--yellow)">↑ 同款最优 ${a.bestOrders}单 (actId:${a.bestActId})</div>`:''}
+        ${a.altSources&&a.altSources.length?`<div class="name-sub" title="同款来自多个供应商，已合并成一行（显示的是数据最好的那条）">同款另有 ${a.altSources.length} 个来源：${esc(a.altSources.map(s=>s.ghName+'·'+CAT_LABEL[s.category]).join(' / '))}</div>`:''}
       </td>
       <td class="num">¥${(a.price||0).toFixed(0)}</td>
-      <td class="num earn">¥${(a.followEarning||0).toFixed(2)}</td>
+      <td class="num earn">¥${commissionOf(a).toFixed(2)}
+        <div class="name-sub" ${a.category==='reopen'?'title="复开活动已结束，平台不再提供跟团佣金；此处为供货佣金 earning"':''}>${commissionLabel(a)}</div>
+      </td>
       <td class="num">${a.totalOrders||0}</td>
       <td class="cell-name">
         <div class="name-main" style="font-size:12px">${esc(a.goodsName)}</div>
         ${a.commissionPct?`<div class="name-sub">佣金率 ${esc(a.commissionPct)}</div>`:''}
       </td>
-      <td>${esc(a.ghName||'')}${a.starGh?' <span class="tag tag-star">星</span>':''}</td>
+      <td>${esc(a.ghName||'')}${a.starGh?' <span class="tag tag-star">星</span>':''}
+        <div style="margin-top:4px"><button class="btn btn-ghost" style="font-size:10px;padding:2px 7px"
+          title="在工具外（比如直接在群接龙里）已经开过这款？点一下记进开团记录，之后 5 天内同款都不会再被开"
+          onclick="markOpened(${a.actId})">标记已开</button></div>
+      </td>
     </tr>`).join('');
   updateSelUI();
 }
-
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
 
 function onActCb(cb) {
   const id = Number(cb.dataset.id);
   if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
   updateSelUI();
+}
+// 手动记「这款我已经开过了」——工具看不到你在群接龙里自己开的团，只能靠这一步补进来。
+// 记完之后本行立刻变成 5 天冷却状态（不会再被选进开团范围），满 5 天自动恢复。
+async function markOpened(actId) {
+  const a = activities.find(x => x.actId === actId);
+  const name = a ? (a.goodsName || a.actName || '') : String(actId);
+  const yes = await uiConfirm(
+    `把这条记成「我已经开过」？\n\n${name}\n\n之后 5 天内，同款（含改名和别家供应商的版本）都不会再被开。`,
+    '标记已开');
+  if (!yes) return;
+  try {
+    const r = await apiFetch('/api/log/mark', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({actIds: [actId]}),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    if (a) { a.recentlyOpened = true; a.daysSinceOpen = 0; }
+    selectedIds.delete(actId);
+    openIds.delete(actId);
+    renderActivities();
+    if (typeof renderOpenTab === 'function') renderOpenTab();
+    const weak = (data.weak || []).length;
+    uiAlert(weak
+      ? '已记入开团记录。⚠️ 这条拿不到商品信息，只能按活动 ID 命中冷却。'
+      : '已记入开团记录，5 天内同款不会再被开。', '标记已开');
+  } catch (e) {
+    uiAlert('标记失败：' + e.message, '出错了');
+  }
 }
 function toggleSelectAll(cb) {
   document.querySelectorAll('.act-cb').forEach(el => {
@@ -792,7 +1498,8 @@ function toggleSelectAll(cb) {
   updateSelUI();
 }
 function selectAllActs() {
-  activities.forEach(a => selectedIds.add(a.actId));
+  // 只选当前筛选结果——与表头复选框、开团面板保持一致口径
+  getFiltered().forEach(a => selectedIds.add(a.actId));
   document.querySelectorAll('.act-cb').forEach(cb => cb.checked = true);
   document.getElementById('selectAll').checked = true;
   updateSelUI();
@@ -811,10 +1518,32 @@ function updateSelUI() {
   sa.indeterminate = checked > 0 && checked < cbs.length;
   sa.checked = cbs.length > 0 && checked === cbs.length;
   const hasAny = selectedIds.size > 0;
-  document.getElementById('selAllBtn').style.display = hasAny ? 'none' : '';
+  const vis = getFiltered();
+  const openableVis = openableCount(vis);
+  const selAllBtn = document.getElementById('selAllBtn');
+  selAllBtn.style.display = hasAny ? 'none' : '';
+  selAllBtn.textContent = `全选筛选结果 (${vis.length})`;
+  selAllBtn.title = '只勾选当前筛选出来的活动';
   document.getElementById('clearSelBtn').style.display = hasAny ? '' : 'none';
-  document.getElementById('toOpenBtn').style.display = hasAny ? '' : 'none';
-  if (hasAny) document.getElementById('toOpenBtn').textContent = `开 ${selectedIds.size} 个 →`;
+
+  // 「开 N 个」始终反映"点下去真的会开几个"：
+  //   有手动勾选 → 勾选里可开团的个数（勾选已被裁剪到当前视图内）
+  //   没有勾选   → 当前筛选结果里可开团的个数（与开团面板的默认范围一致）
+  const toOpenBtn = document.getElementById('toOpenBtn');
+  const scope = hasAny ? activities.filter(a => selectedIds.has(a.actId)) : vis;
+  const okN = openableCount(scope);
+  if (!activities.length || !scope.length) {
+    toOpenBtn.style.display = 'none';
+  } else {
+    toOpenBtn.style.display = '';
+    toOpenBtn.textContent = `开 ${okN} 个 →`;
+    toOpenBtn.title = hasAny
+      ? (scope.length > okN
+          ? `已勾选 ${scope.length} 个，其中 ${scope.length - okN} 个未开启跟团功能、会被跳过`
+          : `已勾选 ${scope.length} 个，全部可以开团`)
+      : `没有手动勾选 → 将开「当前筛选出的 ${vis.length} 个」`
+        + (vis.length > okN ? `，其中 ${vis.length - okN} 个未开启跟团功能、会被跳过` : '');
+  }
 }
 
 function goToOpen() {
@@ -827,31 +1556,39 @@ function goToOpen() {
 
 // ── Open tab ──
 function syncOpenTab() {
-  // When activities refresh, reset open selection to all
-  openIds = new Set(activities.map(a => a.actId));
+  // 拉取后活动集变了，清掉已不存在的勾选
+  const ids = new Set(activities.map(a => a.actId));
+  [...selectedIds].forEach(id => { if (!ids.has(id)) selectedIds.delete(id); });
   renderOpenTab();
 }
 
-function renderOpenTab() {
-  let base = selectedIds.size > 0
+// 开团候选范围：有手动勾选就用勾选的，否则继承活动列表当前的筛选结果
+function openBase() {
+  return selectedIds.size > 0
     ? activities.filter(a => selectedIds.has(a.actId))
-    : activities;
+    : getFiltered();
+}
 
-  if (openIds.size === 0 || !activities.length) {
-    openIds = new Set(base.map(a => a.actId));
-  }
-
+function renderOpenTab() {
   const body = document.getElementById('openBody');
   const empty = document.getElementById('openEmpty');
+  const emptyText = document.getElementById('openEmptyText');
   const badge = document.getElementById('badge-open');
 
+  const base = openBase();
+
   if (!base.length) {
-    body.innerHTML = ''; empty.style.display = 'block';
-    updateOpenStat(); return;
+    body.innerHTML = '';
+    openIds.clear();
+    badge.textContent = '0';
+    emptyText.textContent = activities.length ? '没有符合当前筛选条件的活动' : '请先在活动列表拉取数据';
+    empty.style.display = 'block';
+    updateOpenStat(0, 0);
+    return;
   }
   badge.textContent = base.length;
 
-  // apply local filters (display only, doesn't affect openIds selection)
+  // 面板内筛选直接决定"将要开团的范围"——所见即所开
   let visible = base;
   if (openCatFilter !== 'all') visible = visible.filter(a => a.category === openCatFilter);
   if (openFilterText) {
@@ -862,30 +1599,46 @@ function renderOpenTab() {
       (a.ghName||'').toLowerCase().includes(q)
     );
   }
+  // 默认勾选「能开 且 不是已跟过」；已跟过的仍然可勾（手动），只是不预勾。
+  openIds = new Set(visible.filter(isDefaultOpenPick).map(a => a.actId));
+  openSkipped = visible.filter(isOpenBlocked).length;
+  openSkipDetail = skipBreakdown(visible);
+  openFollowedCount = visible.filter(a => !isOpenBlocked(a) && isAlreadyFollowed(a)).length;
 
   empty.style.display = visible.length ? 'none' : 'block';
-  body.innerHTML = visible.map(a => `
-    <tr>
+  if (!visible.length) emptyText.textContent = '没有符合当前筛选条件的活动';
+  body.innerHTML = visible.map(a => {
+    const ok = !isOpenBlocked(a);
+    const cool = isRecentlyOpened(a);
+    return `
+    <tr class="${ok?'':'row-noopen'}">
       <td><input type="checkbox" class="open-cb" data-id="${a.actId}"
-        ${openIds.has(a.actId)?'checked':''} onchange="onOpenCb(this)"></td>
+        ${ok?'':'disabled'} ${openIds.has(a.actId)?'checked':''}
+        ${ok?'onchange="onOpenCb(this)"':''}></td>
       <td style="white-space:nowrap;font-size:11px;color:var(--text3);font-variant-numeric:tabular-nums">
         ${esc(a.startTimeStr||'—')}
         ${a.category==='reopen'?`<div style="color:var(--yellow);margin-top:2px">复开${a.daysSinceOpen!=null?' · '+a.daysSinceOpen+'天前':''}</div>`:''}
+        ${canOpenAct(a)?'':`<div style="margin-top:2px"><span class="tag tag-noopen" title="该活动未开启跟团功能（followEarning 为空），开团必定失败">不可开团</span></div>`}
+        ${cool?`<div style="margin-top:2px"><span class="tag" style="background:var(--yellow-bg);color:var(--yellow)" title="这款商品（含同款的其他供应商版本）5 天内你已经开过团了，现在不会再开；满 5 天后自动恢复">${esc(cooldownText(a))}</span></div>`:''}
+        ${ok&&isAlreadyFollowed(a)?`<div style="margin-top:2px"><span class="tag" style="background:var(--accent-bg);color:var(--accent)" title="平台记录里你已经跟过/开过这个团。工具看不到你自己在群接龙里开的团，「已跟过」就是唯一能拿到的证据，所以默认不勾选；确实要再开请手动勾上">已跟过·默认不勾选</span></div>`:''}
       </td>
       <td class="cell-name">
         <div class="name-main">${esc(a.actName)}</div>
         <div class="name-sub">${esc(a.goodsName)}</div>
       </td>
-      <td class="num earn">¥${(a.followEarning||0).toFixed(2)}</td>
+      <td class="num earn">¥${commissionOf(a).toFixed(2)}
+        <div class="name-sub" ${a.category==='reopen'?'title="复开活动已结束，平台不再提供跟团佣金；此处为供货佣金 earning"':''}>${commissionLabel(a)}</div>
+      </td>
       <td class="num">${a.totalOrders||0}</td>
       <td>${esc(a.ghName||'')}</td>
-    </tr>`).join('');
-  updateOpenStat();
+    </tr>`;
+  }).join('');
+  updateOpenStat(visible.length, base.length);
 }
 
 function setOpenCatFilter(val) {
   openCatFilter = (val === openCatFilter && val !== 'all') ? 'all' : val;
-  ['all','new','reopen'].forEach(k => {
+  ['all','new','reopen','followed'].forEach(k => {
     const el = document.getElementById('ocf-'+k);
     el.style.borderColor = k === openCatFilter ? 'var(--accent)' : '';
     el.style.color = k === openCatFilter ? 'var(--accent)' : '';
@@ -904,6 +1657,7 @@ function onOpenCb(cb) {
 }
 function openToggleAll(cb) {
   document.querySelectorAll('.open-cb').forEach(el => {
+    if (el.disabled) return;               // 不可开团的行不参与全选
     el.checked = cb.checked;
     const id = Number(el.dataset.id);
     if (cb.checked) openIds.add(id); else openIds.delete(id);
@@ -911,7 +1665,11 @@ function openToggleAll(cb) {
   updateOpenStat();
 }
 function openSelectAll() {
-  document.querySelectorAll('.open-cb').forEach(el => { el.checked = true; openIds.add(Number(el.dataset.id)); });
+  document.querySelectorAll('.open-cb').forEach(el => {
+    if (el.disabled) return;
+    el.checked = true;
+    openIds.add(Number(el.dataset.id));
+  });
   document.getElementById('openAllCb').checked = true;
   updateOpenStat();
 }
@@ -922,66 +1680,206 @@ function openClearSel() {
   document.getElementById('openAllCb').indeterminate = false;
   updateOpenStat();
 }
-function updateOpenStat() {
+function skipReasonText(d) {
+  const parts = [];
+  if (d.noFollow) parts.push(`${d.noFollow} 个未开启跟团功能`);
+  if (d.cooldown) parts.push(`${d.cooldown} 个同款 5 天内已开`);
+  return parts.join(' · ');
+}
+function updateOpenStat(visibleCount, totalCount) {
   document.getElementById('openStatBox').innerHTML = `已选 <strong>${openIds.size}</strong> 个活动`;
-  document.getElementById('openStat').innerHTML = `已选 <strong>${openIds.size}</strong> 个待开团`;
+  let s = `将开 <strong>${openIds.size}</strong> 个`;
+  if (openSkipped > 0) {
+    s += ` <span style="color:var(--yellow)" title="这些行已置灰且不可勾选">· 已跳过 ${openSkipped} 个（${skipReasonText(openSkipDetail)}）</span>`;
+  }
+  if (openFollowedCount > 0) {
+    s += ` <span style="color:var(--accent)" title="这些是「已跟过」的团：平台记录里你已经开过它。工具看不到你自己在群接龙里开的团，「已跟过」是唯一能拿到的证据，所以默认不勾选；确实要再开请手动勾上，或点「全选」">· 已跟过 ${openFollowedCount} 条默认未勾选</span>`;
+  }
+  if (visibleCount != null && totalCount != null && visibleCount !== totalCount) {
+    s += ` · 筛选后 <strong>${visibleCount}</strong> / 共 ${totalCount} 条`;
+  }
+  document.getElementById('openStat').innerHTML = s;
+  updateEta();
 }
 
-// ── Open groups ──
+// ── 间隔 / 浮动 / 耗时估算 ──
+function delaySeconds() {
+  const v = Number(document.getElementById('delayInput').value);
+  const unit = Number(document.getElementById('delayUnit').value) || 1;
+  return (isFinite(v) && v > 0 ? v : 0) * unit;
+}
+function jitterSeconds() {
+  const v = Number(document.getElementById('jitterInput').value);
+  return isFinite(v) && v > 0 ? v : 0;
+}
+function fmtSpan(sec) {
+  sec = Math.max(0, Math.round(sec));
+  if (sec <= 0) return '立即';
+  if (sec < 60) return `${sec} 秒`;
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+  if (h && m) return `${h} 小时 ${m} 分`;
+  if (h) return `${h} 小时`;
+  return `${m} 分`;
+}
+function updateEta() {
+  const el = document.getElementById('openEta');
+  const n = openIds.size;
+  if (!n) { el.innerHTML = ''; return; }
+  const d = delaySeconds(), j = jitterSeconds();
+  el.innerHTML = `将开 <strong>${n}</strong> 个 · 平均间隔 <strong>${fmtSpan(d)}</strong>`
+    + (j ? ` ±${j} 秒` : '')
+    + (d ? ` · 预计约 <strong>${fmtSpan(n * d)}</strong>` : '');
+}
+
+// ── Open groups（服务端任务：支持定时开始 / 取消 / 关掉页面后接回）──
+let jobPollTimer = null;
+let jobEventCount = 0;
+let jobLogLoadedId = 0;
+
+function stopJobPolling() {
+  if (jobPollTimer) { clearInterval(jobPollTimer); jobPollTimer = null; }
+}
+function startJobPolling() {
+  if (!jobPollTimer) jobPollTimer = setInterval(pollJob, 1000);
+}
+
+async function pollJob() {
+  let st;
+  try {
+    st = await apiFetch('/api/open/status?since=' + jobEventCount).then(r => r.json());
+  } catch (e) { return; }
+  renderJob(st);
+  if (st.state !== 'scheduled' && st.state !== 'running') stopJobPolling();
+}
+
+function renderJob(st) {
+  const prog = document.getElementById('openProgress');
+  const btn = document.getElementById('openBtn');
+  const cancelBtn = document.getElementById('cancelJobBtn');
+  const active = st.state === 'scheduled' || st.state === 'running';
+
+  cancelBtn.style.display = active ? '' : 'none';
+  btn.disabled = active;
+  btn.textContent = active ? '开团中…' : '开始开团';
+
+  if (st.state === 'idle') { prog.style.display = 'none'; return; }
+  prog.style.display = 'block';
+
+  if (st.events && st.events.length) {
+    const log = document.getElementById('openLog');
+    st.events.forEach(e => addLine(log, e.msg, e.kind));
+    jobEventCount = st.event_count;
+  }
+
+  document.getElementById('opIdx').textContent = `${st.index}/${st.total}`;
+  document.getElementById('opOk').textContent = st.ok;
+  document.getElementById('opFail').textContent = st.fail;
+
+  const bar = document.getElementById('openBar');
+  const pct = st.total ? (st.index / st.total * 100) : 0;
+  bar.style.width = (st.state === 'done' ? 100 : pct).toFixed(1) + '%';
+  bar.classList.toggle('done', st.state === 'done');
+
+  const stateText = {
+    scheduled: `已排期，${fmtSpan(st.remaining || 0)}后开始`,
+    running: st.next_wait != null
+      ? `等待 ${st.next_wait} 秒后开下一条`
+      : (st.current ? `正在开：${st.current}` : '执行中…'),
+    done: '已完成（可查看历史记录）',
+    cancelled: '已取消',
+    failed: '任务失败：' + (st.error || '未知错误'),
+  }[st.state] || '';
+  document.getElementById('opState').textContent = stateText;
+
+  if (st.state === 'done' && !st.dry_run && st.id !== jobLogLoadedId) {
+    jobLogLoadedId = st.id;
+    loadLog();
+  }
+}
+
 async function startOpen() {
-  if (!openIds.size) { alert('请先勾选活动'); return; }
+  if (!openIds.size) {
+    await uiAlert(openSkipped > 0
+      ? `当前这 ${openSkipped} 个活动都不能开：${skipReasonText(openSkipDetail)}。\n`
+        + (openSkipDetail.cooldown ? '同款 5 天内已开的部分，满 5 天后会自动恢复可开。' : '')
+        + (openSkipDetail.noFollow ? '建议在「供应类型」里只勾选「品牌供货活动」再刷新列表。' : '')
+      : '请先勾选要开团的活动');
+    return;
+  }
   const dryRun = document.getElementById('dryRunToggle').checked;
-  const delay = Number(document.getElementById('delayInput').value) || 1;
-  const actIds = [...openIds];
+  const delay = delaySeconds();
+  const jitter = jitterSeconds();
+  const atRaw = document.getElementById('startAtInput').value;
+  let startAt = null;
+  if (atRaw) {
+    const d = new Date(atRaw);
+    if (isNaN(d.getTime())) { await uiAlert('开始时间无效，请重新选择'); return; }
+    if (d.getTime() < Date.now() - 5000) { await uiAlert('开始时间已过，请重新选择'); return; }
+    startAt = atRaw;
+  }
+
+  const n = openIds.size;
+  const lines = [
+    `将开：${n} 个活动${dryRun ? '（dry-run，不会真正创建）' : ''}`,
+    `平均间隔：${fmtSpan(delay)}${jitter ? `（±${jitter} 秒随机）` : ''}`,
+    `预计耗时：约 ${fmtSpan(n * delay)}`,
+    `开始时间：${startAt ? new Date(startAt).toLocaleString('zh-CN') : '立即'}`,
+  ];
+  if (openSkipped > 0) {
+    lines.push(`已跳过：${skipReasonText(openSkipDetail)}`);
+  }
+  if (!await uiConfirm(lines.join('\n') + '\n\n确认开始？', dryRun ? '确认（dry-run）' : '确认开始开团')) return;
 
   const btn = document.getElementById('openBtn');
-  btn.disabled = true; btn.textContent = '开团中…';
-
-  const prog = document.getElementById('openProgress');
+  btn.disabled = true; btn.textContent = '启动中…';
   const log = document.getElementById('openLog');
-  const bar = document.getElementById('openBar');
-  prog.style.display = 'block';
   log.innerHTML = '';
+  jobEventCount = 0; jobLogLoadedId = 0;
+  const bar = document.getElementById('openBar');
   bar.style.width = '0%'; bar.classList.remove('done');
-  document.getElementById('opIdx').textContent = `0/${actIds.length}`;
+  document.getElementById('openProgress').style.display = 'block';
+  document.getElementById('opIdx').textContent = `0/${n}`;
   document.getElementById('opOk').textContent = '0';
   document.getElementById('opFail').textContent = '0';
 
-  let ok = 0, fail = 0;
-  const resp = await fetch('/api/open', {
-    method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({act_ids: actIds, dry_run: dryRun, delay}),
-  });
-  const reader = resp.body.getReader();
-  const dec = new TextDecoder(); let buf = '';
-  while (true) {
-    const {value, done} = await reader.read();
-    if (done) break;
-    buf += dec.decode(value, {stream:true});
-    const parts = buf.split('\n\n'); buf = parts.pop();
-    for (const p of parts) {
-      if (!p.startsWith('data: ')) continue;
-      try {
-        const ev = JSON.parse(p.slice(6));
-        if (ev.type === 'item') {
-          document.getElementById('opIdx').textContent = `${ev.index}/${actIds.length}`;
-          bar.style.width = (ev.index/actIds.length*100).toFixed(1)+'%';
-          if (ev.ok) {
-            ok++; document.getElementById('opOk').textContent = ok;
-            addLine(log, `✓ [${ev.index}] ${ev.actName}${dryRun?' [dry]':' → '+ev.newActId}`, 'ok');
-          } else {
-            fail++; document.getElementById('opFail').textContent = fail;
-            addLine(log, `✗ [${ev.index}] ${ev.actName}: ${ev.error}`, 'err');
-          }
-        } else if (ev.type === 'done') {
-          bar.style.width = '100%'; bar.classList.add('done');
-          addLine(log, `完成：✓${ev.success}  ✗${ev.fail}`, 'ok');
-          if (!dryRun) loadLog();
-        }
-      } catch {}
+  let st;
+  try {
+    const res = await apiFetch('/api/open/start', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({act_ids: [...openIds], dry_run: dryRun, delay, jitter, start_at: startAt}),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      await uiAlert('启动失败：' + (err.detail || res.statusText));
+      btn.disabled = false; btn.textContent = '开始开团';
+      return;
     }
+    st = await res.json();
+  } catch (e) {
+    await uiAlert('启动失败：' + e);
+    btn.disabled = false; btn.textContent = '开始开团';
+    return;
   }
-  btn.disabled = false; btn.textContent = '开始开团';
+  renderJob(st);
+  startJobPolling();
+}
+
+async function cancelJob() {
+  if (!await uiConfirm('确认取消当前开团任务？已完成的不会回退。')) return;
+  try { await apiFetch('/api/open/cancel', {method: 'POST'}); } catch (e) {}
+  pollJob();
+}
+
+// 页面打开时接回未完成的任务（定时等待中 / 正在跑）
+async function reattachJob() {
+  let st;
+  try {
+    st = await apiFetch('/api/open/status?since=0').then(r => r.json());
+  } catch (e) { return; }
+  if (!st || (st.state !== 'scheduled' && st.state !== 'running')) return;
+  jobEventCount = 0;
+  renderJob(st);
+  startJobPolling();
 }
 
 // ── Config modal ──
@@ -989,7 +1887,7 @@ function openModal() { document.getElementById('overlay').classList.add('open');
 function closeModal() { document.getElementById('overlay').classList.remove('open'); }
 function maybeCloseModal(e) { if (e.target === document.getElementById('overlay')) closeModal(); }
 async function saveConfig() {
-  const res = await fetch('/api/config', {
+  const res = await apiFetch('/api/config', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({
       auth_token: document.getElementById('cfgToken').value.trim(),
@@ -1004,7 +1902,7 @@ async function saveConfig() {
 
 // ── History ──
 async function loadLog() {
-  const res = await fetch('/api/log').then(r => r.json());
+  const res = await apiFetch('/api/log').then(r => r.json());
   const items = res.items || [];
   const wrap = document.getElementById('histWrap');
   const stat = document.getElementById('logStat');
@@ -1018,13 +1916,14 @@ async function loadLog() {
     <div class="hist-row">
       <span class="hist-time">${e.time||''}</span>
       <span class="hist-status">${e.status==='ok'?'<span style="color:var(--green)">✓</span>':'<span style="color:var(--red)">✗</span>'}</span>
-      <span class="hist-name">${esc(e.actName||'')}</span>
+      <span class="hist-name" title="${esc(e.status!=='ok' && e.error ? e.error : (e.actName||''))}">${esc(e.actName||'')}${
+        e.status!=='ok' && e.error ? ` <span style="color:var(--red)">${esc(e.error)}</span>` : ''}</span>
       ${e.newActId?`<span class="hist-id">${e.newActId}</span>`:''}
     </div>`).join('');
 }
 async function clearLog() {
-  if (!confirm('确认清空所有历史记录？')) return;
-  await fetch('/api/log', {method:'DELETE'});
+  if (!await uiConfirm('确认清空所有历史记录？')) return;
+  await apiFetch('/api/log', {method:'DELETE'});
   loadLog();
 }
 
