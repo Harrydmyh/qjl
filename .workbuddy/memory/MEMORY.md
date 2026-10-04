@@ -175,9 +175,14 @@
 - 远端：`https://github.com/Harrydmyh/qjl.git`（SSH 形式 `git@github.com:Harrydmyh/qjl.git`）。
   ⚠️ **仓库是 PUBLIC（公开）** —— 往这里推任何东西都等于公开，**推之前先想清楚**。
 - 本地分支已从 `master` 改名 **`main`**（对齐远端默认分支）；当时远端是**空的**（0 refs）。
-- **`.gitignore` 已排除**：`data/`（含 auth_token / gh_id / access_key）、`.workbuddy/`（本目录笔记）、
-  业务数据导出（`*开团记录核对.csv`、`同款判定_*.csv`、`待重开*`）、`__pycache__`、`*.pyc`、`.env`；
-  `web/.gitignore` 另排除 `node_modules/`、`dist/`、`.vercel/`。
+- **`.gitignore`（现状）**：排除 `data/`（含 auth_token / gh_id / access_key —— **这一条必须留着**）、
+  `__pycache__/`、`*.pyc`、`.env`、`.DS_Store`；`web/.gitignore` 另排除
+  `node_modules/`、`dist/`、`.vercel/`。
+  ✅ **按用户明确要求（2026-10-04）**：`.workbuddy/` 笔记 + 业务数据导出
+  （`*开团记录核对.csv`、`同款判定_*.csv`、`待重开*`）**已纳入版本控制，会推到公开仓库**。
+- ⚠️ **铁律：不要在 `.workbuddy/memory/` 里写任何密钥真值**（access_key / auth_token / gh_id / uid）——
+  这些笔记会进**公开**仓库。2026-10-04 就发现 `2026-10-02.md` 抄了 access_key、`2026-10-04.md` 抄了 uid，
+  已抹成「已隐去」。写笔记一律用占位符，或只写「见 `data/config.json`」。
 - **真实账号标识曾硬写在 3 个文件**（`config.example.json`、`index.html`、`deploy/index.html`
   的 placeholder）→ 已用 `git filter-branch --tree-filter` **重写全历史**抹除；
   现在遍历全部提交扫 gh_id / uid / access_key / auth_token **0 命中**。
