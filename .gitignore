@@ -2,12 +2,4 @@ data/
 __pycache__/
 *.pyc
 .env
-
-# 内部工作记录（agent 笔记：含团长名、业务分析）
-.workbuddy/
-
-# 业务数据导出（含团长/商品/活动编号，不随代码公开）
-10-02开团记录核对.csv
-同款判定_新增识别清单.csv
-待重开清单_0佣金团.csv
-待重开actIds.txt
+.DS_Store
