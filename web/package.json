@@ -1,0 +1,25 @@
+{
+  "name": "qjl-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "开团助手前端（组件化）。后端常驻在你自己的机器上，本页面只负责界面 + 发请求。",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "smoke": "node smoke.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^29.1.1",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}
