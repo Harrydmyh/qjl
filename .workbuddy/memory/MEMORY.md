@@ -188,9 +188,12 @@
   现在遍历全部提交扫 gh_id / uid / access_key / auth_token **0 命中**。
   → **以后新增示例值/占位符只能用假值**：现用 `PsXXXXXX_bsXXXXXX_xxxxxxxx` / `100000000`。
   （filter-branch 的替换脚本必须**幂等**，因为它会对每个提交各跑一次。）
-- **推送凭证不在本机**：钥匙串里没有 GitHub 凭证；`~/.ssh/id_ed25519` 存在但从没加到 GitHub 账号
-  （`ssh -T git@github.com` → Permission denied）。`gh` CLI **没装**。
-  → 推送这一步**必须用户操作**（贴 SSH 公钥到 GitHub，或给 PAT）。
+- **推送凭证**：✅ 2026-10-04 已解决 —— 本机 `~/.ssh/id_ed25519`（指纹 `SHA256:1wOKow…`）
+  已加进 **Harrydmyh** 账号，远端用 SSH（`git@github.com:Harrydmyh/qjl.git`），推送正常。
+  ⚠️ **用户有两个 GitHub 账号**：`Harrydmyh`（仓库所有者，SSH 已通）/
+  **`Harrydm5`**（`~/.git-credentials` 里那个 40 位明文 token 所属，对本项目**只有 pull**）。
+  涉及推权限的事先确认账号。那个明文 token 建议换掉/删掉。
+  `gh` CLI **没装**。
 - **可复用的密钥安检**：提交树 `git grep -F <secret> HEAD`；
   全历史 `for c in $(git rev-list --all); do git grep -l -F <secret> $c; done`。
 
