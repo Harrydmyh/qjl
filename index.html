@@ -411,9 +411,20 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
     flex-shrink: 0;
     background: var(--surface);
     box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.05);
+    display: flex;
+    flex-direction: column;
     gap: 8px;
   }
+  .open-action-area {
+    order: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-bottom: 8px;
+    border-bottom: 1px dashed var(--border);
+  }
   .open-params-box {
+    order: 2;
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px 12px;
@@ -426,6 +437,12 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
   .open-params-box p {
     grid-column: 1 / -1;
     margin-top: 2px;
+  }
+  .open-side hr {
+    display: none;
+  }
+  .open-progress {
+    order: 3;
   }
 
   /* History */
@@ -456,16 +473,18 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
 
   /* Modal */
   .overlay {
-    padding: 14px;
-    align-items: flex-end;
+    padding: 16px;
+    align-items: center !important;
+    justify-content: center !important;
   }
   .modal {
-    width: 100% !important;
-    max-width: 100% !important;
-    padding: 18px 16px !important;
+    width: 90vw !important;
+    max-width: 400px !important;
+    padding: 20px 18px !important;
     border-radius: 14px !important;
     max-height: 85vh;
     overflow-y: auto;
+    margin: auto;
   }
   .modal h2 {
     font-size: 15px;
@@ -477,6 +496,14 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
   .mfield input, .mfield textarea {
     font-size: 15px !important;
   }
+}
+@keyframes pulseGlow {
+  0% { transform: scale(1); box-shadow: 0 0 0 rgba(59,101,245,0); }
+  50% { transform: scale(1.04); box-shadow: 0 0 14px rgba(59,101,245,0.7); }
+  100% { transform: scale(1); box-shadow: 0 0 0 rgba(59,101,245,0); }
+}
+.pulse {
+  animation: pulseGlow 0.6s ease-in-out 2;
 }
 </style>
 </head>
@@ -662,7 +689,7 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
           <button class="btn btn-ghost" id="selAllBtn" onclick="selectAllActs()" style="display:none">全选</button>
           <button class="btn btn-ghost" id="clearSelBtn" onclick="clearSel()" style="display:none">取消</button>
           <button class="btn btn-primary" id="toOpenBtn" onclick="goToOpen()" style="display:none">
-            开选中 →
+            去开团 →
           </button>
         </div>
       </div>
@@ -779,15 +806,17 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
             </p>
           </div>
           <hr class="hr">
-          <div class="open-stats" id="openStatBox">已选 <strong>0</strong> 个</div>
-          <div class="open-stats" id="openEta"></div>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-primary" id="openBtn" onclick="startOpen()" style="flex:1;justify-content:center;padding:8px">
-              开始开团
-            </button>
-            <button class="btn btn-danger" id="cancelJobBtn" onclick="cancelJob()" style="display:none;border-color:var(--red)">
-              取消
-            </button>
+          <div class="open-action-area">
+            <div class="open-stats" id="openStatBox">已选 <strong>0</strong> 个</div>
+            <div class="open-stats" id="openEta"></div>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-primary" id="openBtn" onclick="startOpen()" style="flex:1;justify-content:center;padding:8px">
+                开始开团
+              </button>
+              <button class="btn btn-danger" id="cancelJobBtn" onclick="cancelJob()" style="display:none;border-color:var(--red)">
+                取消
+              </button>
+            </div>
           </div>
           <div class="open-progress" id="openProgress" style="display:none">
             <div class="op-stats-row">
@@ -1816,7 +1845,7 @@ function updateSelUI() {
     toOpenBtn.style.display = 'none';
   } else {
     toOpenBtn.style.display = '';
-    toOpenBtn.textContent = `开 ${okN} 个 →`;
+    toOpenBtn.textContent = `去开团 (${okN}个) →`;
     toOpenBtn.title = hasAny
       ? (scope.length > okN
           ? `已勾选 ${scope.length} 个，其中 ${scope.length - okN} 个未开启跟团功能、会被跳过`
@@ -1832,6 +1861,11 @@ function goToOpen() {
   document.getElementById('nav-open').classList.add('active');
   document.getElementById('panel-open').classList.add('active');
   renderOpenTab();
+  const ob = document.getElementById('openBtn');
+  if (ob) {
+    ob.classList.add('pulse');
+    setTimeout(() => ob.classList.remove('pulse'), 1400);
+  }
 }
 
 // ── Open tab ──
