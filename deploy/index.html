@@ -101,6 +101,9 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
 .stat-text strong{color:var(--text2)}
 
 /* ── Table ── */
+/* 手机端「选择条」：默认隐藏，只在窄屏显示
+   （窄屏下表头被隐藏，全选复选框与排序入口都由它提供） */
+.list-bar{display:none}
 .table-wrap{flex:1;overflow:auto}
 table{width:100%;border-collapse:collapse;table-layout:auto}
 thead th{background:var(--surface);position:sticky;top:0;padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid var(--border);white-space:nowrap;z-index:2}
@@ -380,6 +383,43 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
   .dd-item input[type=checkbox] {
     width: 16px;
     height: 16px;
+  }
+
+  /* ── 手机端「选择条」──
+     表头在窄屏被隐藏（含全选复选框和排序表头），所以单独给一条：
+     全选 / 已选计数 / 清除 / 排序方式 / 升降序。横滑，不换行。 */
+  .list-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface2);
+    font-size: 12px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .list-bar::-webkit-scrollbar { display: none; }
+  .lb-all {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .lb-all input[type=checkbox] { width: 18px; height: 18px; margin: 0; }
+  .lb-count { flex: 0 0 auto; color: var(--text3); white-space: nowrap; }
+  .lb-sep { flex: 0 0 auto; width: 1px; height: 16px; background: var(--border2); }
+  .list-bar .btn { flex: 0 0 auto; padding: 4px 9px; font-size: 12px; min-height: 28px; }
+  .list-bar .inline-sel {
+    flex: 0 0 auto;
+    font-size: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 4px 6px;
   }
 
   /* ── 表格 → 卡片 ──
@@ -849,6 +889,26 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
         <div class="stream" id="fetchLog"></div>
       </div>
 
+      <!-- 手机端专用「选择条」：窄屏下表头被隐藏（8 列塞不下），全选与排序入口改放这里 -->
+      <div class="list-bar">
+        <label class="lb-all">
+          <input type="checkbox" id="mSelectAll" onchange="toggleSelectAll(this)">
+          <span id="mSelAllLabel">全选</span>
+        </label>
+        <span class="lb-count" id="mSelCount">未选</span>
+        <button class="btn btn-ghost" id="mClearBtn" onclick="clearSel()">清除</button>
+        <span class="lb-sep"></span>
+        <select id="sortSel" class="inline-sel" onchange="onSortSelChange(this.value)"
+                title="排序方式（宽屏时点表头也可以）">
+          <option value="startTime">按时间</option>
+          <option value="price">按价格</option>
+          <option value="followEarning">按佣金</option>
+          <option value="totalOrders">按总订单</option>
+          <option value="ghName">按供应商</option>
+        </select>
+        <button class="btn btn-ghost" id="sortDirBtn" onclick="toggleSortDir()">↓</button>
+      </div>
+
       <div class="table-wrap">
         <table>
           <thead>
@@ -860,7 +920,8 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
               <th id="th-followEarning" class="sortable num" onclick="setSort('followEarning')" title="新活动显示跟团佣金；复开活动已结束、平台不再提供跟团佣金，显示供货佣金 earning">佣金</th>
               <th id="th-totalOrders" class="sortable num" onclick="setSort('totalOrders')">总订单</th>
               <th>商品</th>
-              <th>供应商</th>
+              <th id="th-ghName" class="sortable" onclick="setSort('ghName')"
+                  title="按供应商名排序（中文按拼音），同一家内部再按总订单降序">供应商</th>
             </tr>
           </thead>
           <tbody id="actBody"></tbody>
@@ -895,6 +956,15 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
           <button class="btn btn-ghost" id="openSelAllBtn" onclick="openSelectAll()">全选</button>
           <button class="btn btn-ghost" onclick="openClearSel()">清除</button>
         </div>
+      </div>
+      <!-- 手机端专用「选择条」：开团面板表头同样被隐藏，全选入口放这里 -->
+      <div class="list-bar">
+        <label class="lb-all">
+          <input type="checkbox" id="mOpenAll" onchange="mOpenAllChange(this)">
+          <span>全选可开</span>
+        </label>
+        <span class="lb-count" id="mOpenCount">未选</span>
+        <button class="btn btn-ghost" onclick="openClearSel()">清除</button>
       </div>
       <div class="open-wrap">
         <div class="open-table">
@@ -1782,10 +1852,40 @@ function sortValue(a, col) {
   return col === 'followEarning' ? commissionOf(a) : (a[col] ?? 0);
 }
 function getFiltered() {
-  return activities.filter(a => passFilters(a, false)).sort((a, b) => {
+  const list = activities.filter(a => passFilters(a, false));
+  if (sortCol === 'ghName') {
+    // 按供应商：中文按拼音排（不是 UTF-16 码点序），同一供应商内部再按总订单降序
+    // —— 这样同家的团聚在一起，方便按供应商批量处理。
+    return list.sort((a, b) => {
+      const c = String(a.ghName || '').localeCompare(String(b.ghName || ''), 'zh-Hans-CN');
+      if (c !== 0) return c * sortDir;
+      return (b.totalOrders ?? 0) - (a.totalOrders ?? 0);
+    });
+  }
+  return list.sort((a, b) => {
     const av = sortValue(a, sortCol), bv = sortValue(b, sortCol);
     return av < bv ? -sortDir : av > bv ? sortDir : 0;
   });
+}
+// 手机端排序下拉：文本类（供应商）默认升序，数值/时间类默认降序（大的在前）
+function onSortSelChange(col) {
+  sortCol = col;
+  sortDir = col === 'ghName' ? 1 : -1;
+  renderActivities();
+}
+function toggleSortDir() {
+  sortDir *= -1;
+  renderActivities();
+}
+// 把当前排序状态反映到手机端那一条上（点表头排序时也要同步）
+function syncSortBar() {
+  const sel = document.getElementById('sortSel');
+  if (sel && sel.value !== sortCol) sel.value = sortCol;
+  const btn = document.getElementById('sortDirBtn');
+  if (btn) {
+    btn.textContent = sortDir === -1 ? '↓' : '↑';
+    btn.title = sortDir === -1 ? '当前降序，点击改升序' : '当前升序，点击改降序';
+  }
 }
 function getReopenCount() {
   return activities.filter(a => a.category === 'reopen' && passFilters(a, true)).length;
@@ -1817,6 +1917,7 @@ function renderActivities() {
   const badge = document.getElementById('badge-activities');
 
   updateSortHeaders();
+  syncSortBar();
 
   if (!activities.length) {
     body.innerHTML = '';
@@ -1974,7 +2075,17 @@ function updateSelUI() {
   sa.indeterminate = checked > 0 && checked < cbs.length;
   sa.checked = cbs.length > 0 && checked === cbs.length;
   const hasAny = selectedIds.size > 0;
+  // 同步手机端选择条（表头在窄屏被隐藏，那条是唯一入口）
+  const msa = document.getElementById('mSelectAll');
+  if (msa) {
+    msa.indeterminate = sa.indeterminate;
+    msa.checked = sa.checked;
+  }
+  const mCount = document.getElementById('mSelCount');
+  if (mCount) mCount.textContent = selectedIds.size ? `已选 ${selectedIds.size}` : '未选';
   const vis = getFiltered();
+  const mLabel = document.getElementById('mSelAllLabel');
+  if (mLabel) mLabel.textContent = vis.length ? `全选 (${vis.length})` : '全选';
   const openableVis = openableCount(vis);
   const selAllBtn = document.getElementById('selAllBtn');
   selAllBtn.style.display = hasAny ? 'none' : '';
@@ -2134,6 +2245,11 @@ function openSelectAll() {
   document.getElementById('openAllCb').checked = true;
   updateOpenStat();
 }
+// 手机端选择条上的复选框（开团面板表头在窄屏同样被隐藏）
+function mOpenAllChange(cb) {
+  if (cb.checked) openSelectAll();
+  else openClearSel();
+}
 function openClearSel() {
   openIds.clear();
   document.querySelectorAll('.open-cb').forEach(el => el.checked = false);
@@ -2149,6 +2265,17 @@ function skipReasonText(d) {
 }
 function updateOpenStat(visibleCount, totalCount) {
   document.getElementById('openStatBox').innerHTML = `已选 <strong>${openIds.size}</strong> 个活动`;
+  // 同步手机端选择条（窄屏下表头被隐藏，那条是唯一的全选入口）
+  const moa = document.getElementById('mOpenAll');
+  if (moa) {
+    const cbs = document.querySelectorAll('.open-cb');
+    const enabled = [...cbs].filter(c => !c.disabled);
+    const checked = enabled.filter(c => c.checked).length;
+    moa.checked = enabled.length > 0 && checked === enabled.length;
+    moa.indeterminate = checked > 0 && checked < enabled.length;
+  }
+  const moc = document.getElementById('mOpenCount');
+  if (moc) moc.textContent = openIds.size ? `已选 ${openIds.size}` : '未选';
   let s = `将开 <strong>${openIds.size}</strong> 个`;
   if (openSkipped > 0) {
     s += ` <span style="color:var(--yellow)" title="这些行已置灰且不可勾选">· 已跳过 ${openSkipped} 个（${skipReasonText(openSkipDetail)}）</span>`;
