@@ -103,6 +103,13 @@ TCP 80/443 全超时；apipro 无 `/up/` 路由）。且每个团长会重传图
   伪造违反协议且必撞风控）→ 只能做到「mitmproxy 无头脚本从流量里捞 token 写回配置」。
 - 我们请求头与真实小程序有差异（client-version 6.2.77 vs 6.2.83、scenecode 1008 vs 1005、
   mini-route 多了值），目前不影响，行为异常时是第一手对照材料。
+- **群接龙另一套服务「Claw」**（`claw.qunjielong.com`，小程序 `wx3b333c6a5c60acc3`，
+  AI 助手/选品池；我们工具的小程序是 `wx059cd327295ab444`）：
+  有登录接口 `POST /api/auth/qjl-wx-login`（入参仍是**一次性微信 code**），
+  返回的是 **claw 自己的 `sessionToken`（43 字符随机串，非 JWT，放 `x-session-token` 头）**，
+  **换不到 apipro 的 access token**（实测打 apipro → 401）。
+  但响应里有 `tokenStatus:active` + 你全部主页 ghId → **Claw 后端持有群接龙身份（统一 SSO）**，
+  只是没把 JWT 下发给客户端。详见 `2026-10-11.md`。
 
 ## Git / 公开仓库（往 GitHub 推之前必读）
 - 远端 `git@github.com/Harrydmyh/qjl.git`。⚠️ **PUBLIC 公开仓库**，推任何东西 = 公开。
