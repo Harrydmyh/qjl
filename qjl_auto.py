@@ -420,10 +420,11 @@ def run_round(args, cfg, phone, opened_before=None):
 
     ok_list, fail_list = [], []
     for i, t in enumerate(targets, 1):
-        if t["actId"] in opened_before:
+        if not args.no_memo and t["actId"] in opened_before:
             print(f"      {i:2d}. ⏭ 本进程已开过，跳过 {t['name'][:30]}")
             continue
-        opened_before.add(t["actId"])
+        if not args.no_memo:
+            opened_before.add(t["actId"])
         if t.get("mode") == "follow":
             ok, new_id, name, err = open_follow(cfg, t["actId"])
         else:
@@ -463,6 +464,9 @@ def main():
     ap.add_argument("--max-rounds", type=int, default=0, help="最多跑几轮（0=不限）")
     ap.add_argument("--again", action="store_true",
                     help="已开过的也再开（默认跳过）。同一进程内同一 actId 只开一次，防止循环失控")
+    ap.add_argument("--no-memo", action="store_true",
+                    help="⚠️危险：关闭进程内去重。配合 --again --loop 会每轮重复开同一批团"
+                         "（21 个 × 60s = 每小时约 1260 个团），可能触发风控/封号")
     args = ap.parse_args()
 
     print("=" * 64)
@@ -516,6 +520,8 @@ def main():
             print(f"\n{'─'*62}")
             print(f"  第 {rnd} 轮 · {time.strftime('%Y-%m-%d %H:%M:%S')}")
             print(f"{'─'*62}")
+        if args.no_memo and args.loop and args.again:
+            print("      ⚠️ no-memo 模式：本轮会把候选全部重开一遍（不做去重）")
         ok_list, fail_list = run_round(args, cfg, phone, opened_this_run)
         total_ok += len(ok_list)
         total_fail += len(fail_list)
