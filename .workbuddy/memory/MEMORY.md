@@ -67,6 +67,17 @@ plist 合法）—— 注册只能在用户交互会话里做；但 `print`/`kic
 
 ## 关键领域规则（血泪换来的）
 - 广场两类活动：`followEarning` 非 null = 能开团；null = 不能开（硬开必失败）。判据 `hasFollowRelation`。
+- ⚠️ **帮卖有「两套模式」，工具目前只实现了「跟团」那一套**（2026-10-11 发现）：
+  · **跟团**：`for_follow/{actId}/{ghId}` + `/act/release`，判据 `followEarning` 非 null；
+  · **帮卖子团**：`for_leader/{actId}/{ghId}` + `/activity-biz/help_sale_child/act/release`，
+    判据是 `activityType`：**10 → 5830「没有帮卖权限」**，**150/160/210 可开**。
+  · 新号（柳木林小铺 uid155475458）只能走**帮卖子团**；它的候选不在帮卖广场
+    （`ups=[3]` 返回 0），而在 `POST /ghome-feed/act_recommend/get_recommend_acts`
+    （种子 actId → 20 条，迭代 2 轮收敛）。
+  · 构造请求体两个坑：① `activitySettingsParam` 必须**用成功样本补齐 DTO 缺失的键**
+    （缺 `showAllGroupOrder` 会报 5259）；② 手机号要带 `?ghId=` 打
+    `/activity-accessory/activity_input/get_user_input` → `inputMap["210"]`。
+  详见 `2026-10-11.md`。
 - **`open_log` 必须同时写 `goodsIds` + `goodsNames`**（2026-09-23 修过 bug：算了却没写 →
   冷却只剩 actId/goodsId 命中，换供应商/改名就认不出，表现为反复开同一款）。
 - **`commissionPercent` 绝不能提交成 null** —— 平台会把整团佣金清零（历史 223 个团白开）。
