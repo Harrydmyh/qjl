@@ -158,8 +158,9 @@ def my_home_acts(cfg, pages=6):
     return ids, names
 
 
-def collect_follow(cfg, days=7):
-    """跟团模式（老号走这条）：帮卖广场里可跟团、且不在 5 天冷却内的"""
+def collect_follow(cfg, days=7, include_opened=False):
+    """跟团模式（老号走这条）：帮卖广场里可跟团的活动
+    include_opened=True 时不排除「5 天内已开过」的"""
     import queue
     q = queue.Queue()
     box = {}
@@ -181,7 +182,7 @@ def collect_follow(cfg, days=7):
     for a in box.get("d", {}).get("items", []):
         if not a.get("hasFollowRelation"):
             continue
-        if a.get("recentlyOpened"):
+        if a.get("recentlyOpened") and not include_opened:
             continue
         out.append({"mode": "follow", "actId": a["actId"],
                     "name": (a.get("actName") or a.get("goodsName") or "")[:44],
@@ -333,13 +334,18 @@ def open_child(cfg, act_id, phone, dry_run=False):
 
 # ────────────────────────── 主流程 ──────────────────────────
 
-def run_round(args, cfg, phone):
-    """跑一轮：收集候选 → 开团。返回 (ok_list, fail_list)"""
+def run_round(args, cfg, phone, opened_before=None):
+    """跑一轮：收集候选 → 开团。返回 (ok_list, fail_list)
+
+    opened_before: 本进程内已经开过的 actId 集合。--again 时靠它防止
+                   循环模式下把同一批团无限重复开（60 秒一轮会炸）。
+    """
+    opened_before = opened_before if opened_before is not None else set()
     targets, skipped = [], []
 
     # ── 跟团模式（老号走这条）──
     if args.mode in ("follow", "both"):
-        fl = collect_follow(cfg, days=args.days)
+        fl = collect_follow(cfg, days=args.days, include_opened=args.again)
         print(f"      跟团模式：广场可跟团 {len(fl)} 个")
         for t in fl:
             targets.append(t)
@@ -351,7 +357,7 @@ def run_round(args, cfg, phone):
         pool = recommend_pool(cfg, list(mine)[:3] or [], rounds=args.rounds)
         print(f"      帮卖子团：推荐池候选 {len(pool)} 个")
         for aid, nm in pool.items():
-            if aid in mine:
+            if aid in mine and not args.again:
                 skipped.append((aid, "自己已开过", nm))
                 continue
             ok, ogh, at, name, err = probe(cfg, aid)
@@ -414,6 +420,10 @@ def run_round(args, cfg, phone):
 
     ok_list, fail_list = [], []
     for i, t in enumerate(targets, 1):
+        if t["actId"] in opened_before:
+            print(f"      {i:2d}. ⏭ 本进程已开过，跳过 {t['name'][:30]}")
+            continue
+        opened_before.add(t["actId"])
         if t.get("mode") == "follow":
             ok, new_id, name, err = open_follow(cfg, t["actId"])
         else:
@@ -451,6 +461,8 @@ def main():
     ap.add_argument("--loop", type=float, default=0,
                     help="循环模式：每轮结束后等这么多秒再跑下一轮（如 60）")
     ap.add_argument("--max-rounds", type=int, default=0, help="最多跑几轮（0=不限）")
+    ap.add_argument("--again", action="store_true",
+                    help="已开过的也再开（默认跳过）。同一进程内同一 actId 只开一次，防止循环失控")
     args = ap.parse_args()
 
     print("=" * 64)
@@ -496,6 +508,7 @@ def main():
     print(f"      团长手机号 {'已取到' if phone else '⚠️未取到（child 模式可能失败）'}")
 
     total_ok = total_fail = 0
+    opened_this_run = set()
     rnd = 0
     while True:
         rnd += 1
@@ -503,7 +516,7 @@ def main():
             print(f"\n{'─'*62}")
             print(f"  第 {rnd} 轮 · {time.strftime('%Y-%m-%d %H:%M:%S')}")
             print(f"{'─'*62}")
-        ok_list, fail_list = run_round(args, cfg, phone)
+        ok_list, fail_list = run_round(args, cfg, phone, opened_this_run)
         total_ok += len(ok_list)
         total_fail += len(fail_list)
         if ok_list or fail_list:
