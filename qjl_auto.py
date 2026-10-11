@@ -157,6 +157,48 @@ def my_home_acts(cfg, pages=6):
     return ids, names
 
 
+def collect_follow(cfg, days=7):
+    """跟团模式（老号走这条）：帮卖广场里可跟团、且不在 5 天冷却内的"""
+    import queue
+    q = queue.Queue()
+    box = {}
+
+    def run():
+        core.fetch_activities(cfg, q, days_range=days,
+                              log_entries=load_open_log(), include_followed=True)
+
+    threading.Thread(target=run, daemon=True).start()
+    while True:
+        ev = q.get()
+        if ev.get("type") == "done":
+            box["d"] = ev
+            break
+        if ev.get("type") == "error":
+            print("      拉取失败:", str(ev)[:160])
+            return []
+    out = []
+    for a in box.get("d", {}).get("items", []):
+        if not a.get("hasFollowRelation"):
+            continue
+        if a.get("recentlyOpened"):
+            continue
+        out.append({"mode": "follow", "actId": a["actId"],
+                    "name": (a.get("actName") or a.get("goodsName") or "")[:44],
+                    "ghId": None, "owner": a.get("ghName", ""), "actType": None,
+                    "price": a.get("price")})
+    return out
+
+
+def load_open_log():
+    p = os.path.join(ROOT, "data", "open_log.json")
+    if os.path.exists(p):
+        try:
+            return json.loads(open(p, encoding="utf-8").read())
+        except Exception:
+            return []
+    return []
+
+
 def recommend_pool(cfg, seeds, rounds=4):
     """推荐池：种子必须是自己主页的团，迭代到收敛"""
     s = core.make_session()
@@ -262,6 +304,12 @@ def build_payload(D, gh, phone):
     }
 
 
+def open_follow(cfg, act_id, dry_run=False):
+    """跟团模式开团（core 里已验证：老号历史开过 632 条）"""
+    ok, new_id, name, err = core.open_one_group(cfg, act_id, dry_run=dry_run)
+    return ok, new_id, (name or "")[:44], err
+
+
 def open_child(cfg, act_id, phone, dry_run=False):
     s = core.make_session()
     h = core.make_headers(cfg)
@@ -290,7 +338,11 @@ def main():
     ap.add_argument("--token")
     ap.add_argument("--gh-id", dest="gh_id")
     ap.add_argument("--uid")
-    ap.add_argument("--gh", default="tang", help="tang=只开汤团的(默认) / all=不筛 / 指定 ghId")
+    ap.add_argument("--gh", default="all",
+                    help="all=能开的全开(默认) / tang=只开归属汤团的(仅 child 模式) / 指定 ghId")
+    ap.add_argument("--mode", choices=["follow", "child", "both"], default="both",
+                    help="follow=跟团(老号) / child=帮卖子团(新号) / both=两种都扫(默认)")
+    ap.add_argument("--days", type=int, default=7, help="跟团模式拉最近 N 天")
     ap.add_argument("--delay", type=float, default=3.0)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--rounds", type=int, default=4)
@@ -300,7 +352,7 @@ def main():
     args = ap.parse_args()
 
     print("=" * 64)
-    print("  一键帮卖 · 帮卖子团模式")
+    print(f"  一键帮卖 · 模式={args.mode}  来源={args.gh}")
     print("=" * 64)
 
     cfg = load_config()
@@ -333,38 +385,55 @@ def main():
         print(f"      ✅ uid={uid}  到期 {exp}（还剩 {left/3600:.1f} 小时）")
     print(f"      gh_id = {cfg.get('gh_id')}")
 
-    print("\n[3/5] 拉自己主页（排除已开过的）…")
-    mine, mine_names = my_home_acts(cfg)
-    print(f"      已开过 {len(mine)} 个 → 会自动跳过")
-
-    print("\n[4/5] 从推荐池取候选 …")
-    pool = recommend_pool(cfg, list(mine)[:3] or [], rounds=args.rounds)
-    print(f"      候选 {len(pool)} 个")
-
+    print("\n[3/5] 收集候选 …")
     phone = get_phone(cfg)
-    print(f"      团长手机号 {'已取到' if phone else '⚠️未取到（可能开团失败）'}")
+    print(f"      团长手机号 {'已取到' if phone else '⚠️未取到（child 模式可能失败）'}")
 
-    print("\n      逐个查归属与权限 …")
     targets, skipped = [], []
-    for aid, nm in pool.items():
-        if aid in mine:
-            skipped.append((aid, "自己已开过", nm))
+
+    # ── 跟团模式（老号走这条）──
+    if args.mode in ("follow", "both"):
+        fl = collect_follow(cfg, days=args.days)
+        print(f"      跟团模式：广场可跟团 {len(fl)} 个")
+        for t in fl:
+            targets.append({**t, "owner": t.get("owner") or ""})
+        if not fl and args.mode == "follow":
+            print("      （0 个：可能 token 过期、或这个号在广场没有可跟团的活动）")
+
+    # ── 帮卖子团模式（新号走这条）──
+    if args.mode in ("child", "both"):
+        mine, _ = my_home_acts(cfg)
+        print(f"      帮卖子团：自己已开过 {len(mine)} 个（会跳过）")
+        pool = recommend_pool(cfg, list(mine)[:3] or [], rounds=args.rounds)
+        print(f"      帮卖子团：推荐池候选 {len(pool)} 个")
+        for aid, nm in pool.items():
+            if aid in mine:
+                skipped.append((aid, "自己已开过", nm))
+                continue
+            ok, ogh, at, name, err = probe(cfg, aid)
+            if not ok:
+                skipped.append((aid, f"取不到模板:{err}", nm))
+                continue
+            if at == 10:
+                skipped.append((aid, "activityType=10 无帮卖权限", nm))
+                continue
+            if args.gh == "tang" and ogh not in TANG_GH:
+                skipped.append((aid, f"非汤团({TANG_GH.get(ogh, ogh)})", name))
+                continue
+            if args.gh not in ("tang", "all") and ogh != args.gh:
+                skipped.append((aid, "来源不匹配", name))
+                continue
+            targets.append({"actId": aid, "name": name, "ghId": ogh, "mode": "child",
+                            "owner": TANG_GH.get(ogh, ogh), "actType": at})
+
+    # 去重（两种模式可能撞）
+    seen, uniq = set(), []
+    for t in targets:
+        if t["actId"] in seen:
             continue
-        ok, ogh, at, name, err = probe(cfg, aid)
-        if not ok:
-            skipped.append((aid, f"取不到模板:{err}", nm))
-            continue
-        if at == 10:
-            skipped.append((aid, "activityType=10 无帮卖权限", nm))
-            continue
-        if args.gh == "tang" and ogh not in TANG_GH:
-            skipped.append((aid, f"非汤团({TANG_GH.get(ogh, ogh)})", name))
-            continue
-        if args.gh not in ("tang", "all") and ogh != args.gh:
-            skipped.append((aid, "来源不匹配", name))
-            continue
-        targets.append({"actId": aid, "name": name, "ghId": ogh,
-                        "owner": TANG_GH.get(ogh, ogh), "actType": at})
+        seen.add(t["actId"])
+        uniq.append(t)
+    targets = uniq
 
     if args.limit:
         targets = targets[:args.limit]
@@ -407,7 +476,10 @@ def main():
     print(f"\n[5/5] 开团（间隔 {args.delay}s）…")
     ok_list, fail_list = [], []
     for i, t in enumerate(targets, 1):
-        ok, new_id, name, err = open_child(cfg, t["actId"], phone)
+        if t.get("mode") == "follow":
+            ok, new_id, name, err = open_follow(cfg, t["actId"])
+        else:
+            ok, new_id, name, err = open_child(cfg, t["actId"], phone)
         if ok:
             ok_list.append({"actId": t["actId"], "newActId": new_id, "name": name,
                             "owner": t["owner"], "time": time.strftime("%Y-%m-%d %H:%M:%S")})
