@@ -111,6 +111,26 @@ TCP 80/443 全超时；apipro 无 `/up/` 路由）。且每个团长会重传图
   但响应里有 `tokenStatus:active` + 你全部主页 ghId → **Claw 后端持有群接龙身份（统一 SSO）**，
   只是没把 JWT 下发给客户端。详见 `2026-10-11.md`。
 
+## 售后模块（2026-10-11 逆向，详见 `售后接口探究报告.md`）
+- 列表：`POST apipro.qunjielong.com/after-sales-biz/as_order_search/v2/search`
+  （body：`ghId`/`ghViewType`/`sort`/`asStatusList`/`page`/`pageSize`/`searchContent`/`asOrderNo`）。
+  角标：`…/v2/as_status_num`；筛选下拉：`/after-sales-biz/gh_admin_search/conditions`。
+- **`ghViewType` 是视角开关**：`10`=别人向我/我下级发起（要的这个），`20`=我向上游发起，
+  **互斥、交集 0**。默认待人处理的只用 `asStatusList=[10,20]`（10=待处理 20=待买家处理）；
+  **`asStatusList=[]` 会拉到 2024 年的上千条归档**（120=已完成）。
+- **`searchContent` 只认手机号/收货人/订单号**；售后单号要用 `asOrderNo` 参数，商品名搜不到。
+- **「复制信息」没有后端**：埋点里是 `handleCopyOrderData`，零请求 → 模板自由发挥。
+  字段：`linkMan`/`linkPhone`/`addr`/`orderItemList[]`(`goodsName`+`goodsUnit`+`buyQuantity`，价格单位**分**)/
+  `orderNo`/`asOrderNo`/`asContent`（**大量为空，必须容错**）/一单可能多件。
+- 现成脚本 `after_sale_probe.py`（独立、可跑 `--copy`/`--out csv`；token 走 `--token` 或 `QJL_TOKEN`）。
+
+## 从 Charles 抓包（`.chlz`）反向出接口的可复用套路
+`.chlz` 就是 zip：`unzip -o x.chlz -d session` → `{n}-meta.json`（method/host/path/status/times/**完整请求头**）、
+`{n}-req.json`（**body 已是明文 JSON**）、`{n}-res.json`（响应已解码）→ **不开 Charles 就能全量分析**。
+- 还原「用户点了什么」：`col.qunjielong.com/userAction` 的 `content[].functionName` + `actType`，
+  能精确看到按钮对应的前端函数名（如 `handleCopyOrderData`）→ 有没有后端接口一目了然。
+- 验证假设：直接读抓包里的 `authorization` 重放（注意 `trust_env=False`，且**别把 JWT 写进仓库/笔记**）。
+
 ## Git / 公开仓库（往 GitHub 推之前必读）
 - 远端 `git@github.com/Harrydmyh/qjl.git`。⚠️ **PUBLIC 公开仓库**，推任何东西 = 公开。
 - 分支 `main`。`.gitignore` 排除：`data/`（含 auth_token/gh_id/access_key，**必须留**）、
