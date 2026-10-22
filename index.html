@@ -158,6 +158,30 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
 #rangeHint{white-space:nowrap}
 .inline-text{width:130px;background:transparent;border:none;color:var(--text);font-size:12px;font-family:inherit;outline:none}
 .inline-text::placeholder{color:var(--text3)}
+/* ── 日历自选拉取范围 ── */
+.cal-panel{position:absolute;top:calc(100% + 5px);left:0;width:238px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;box-shadow:0 10px 28px rgba(20,30,80,.18);z-index:200;padding:10px;display:none}
+.cal-panel.open{display:block}
+.cal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.cal-nav{display:flex;align-items:center;gap:2px}
+.cal-nav button{background:transparent;border:none;color:var(--text2);cursor:pointer;font-size:15px;line-height:1;padding:4px 7px;border-radius:5px;font-family:inherit}
+.cal-nav button:hover{background:var(--surface3);color:var(--text)}
+.cal-title{font-size:13px;color:var(--text);font-weight:600;min-width:88px;text-align:center}
+.cal-today{font-size:11px!important;padding:4px 8px!important}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-wd{font-size:10px;color:var(--text3);text-align:center;padding:3px 0;user-select:none}
+.cal-day{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text2);border-radius:6px;cursor:pointer;border:1px solid transparent;background:transparent;font-family:inherit;padding:0;min-width:26px}
+.cal-day:hover:not(:disabled){background:var(--accent-hover);color:var(--text)}
+.cal-day.dim{color:var(--text3);opacity:.45}
+.cal-day.today{border-color:var(--accent);color:var(--accent);font-weight:600}
+.cal-day.sel{background:var(--accent);color:#fff;font-weight:600}
+.cal-day.sel:hover{background:var(--accent);color:#fff}
+.cal-day:disabled{opacity:.22;cursor:not-allowed}
+.cal-foot{display:flex;align-items:center;justify-content:space-between;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.cal-count{font-size:11px;color:var(--text2)}
+.cal-count.warn{color:var(--yellow);font-weight:600}
+.cal-acts{display:flex;gap:4px}
+.cal-mini{font-size:11px;padding:3px 8px;border-radius:5px;border:1px solid var(--border2);background:transparent;color:var(--text2);cursor:pointer;font-family:inherit}
+.cal-mini:hover{border-color:var(--accent);color:var(--accent)}
 #ghKeywordChip.on{border-color:var(--accent);color:var(--accent)}
 #ghKwClear{display:none;cursor:pointer;color:var(--text3);line-height:1;padding:0 2px;font-size:13px}
 #ghKeywordChip.on #ghKwClear{display:inline}
@@ -799,28 +823,53 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
           </div>
         </div>
 
-        <!-- 拉取范围：最近 N 天 / 每周某天往前 N 次 -->
-        <div class="filter-chip" style="cursor:default;gap:6px">
-          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="12" rx="1.5"/><path d="M1.5 6.5h13M5 1v3M11 1v3"/></svg>
-          <select id="rangeMode" class="inline-sel" onchange="onRangeModeChange()">
-            <option value="days">最近</option>
-            <option value="weekday">每周</option>
-          </select>
-          <span id="rangeDaysWrap" style="display:inline-flex;align-items:center;gap:4px">
-            <input id="daysInput" type="number" value="7" min="1" max="60" class="inline-num">
-            天
-          </span>
-          <span id="rangeWeekdayWrap" style="display:none;align-items:center;gap:4px">
-            <select id="weekdaySel" class="inline-sel" onchange="onRangeChange()">
-              <option value="1">周一</option><option value="2">周二</option>
-              <option value="3">周三</option><option value="4">周四</option>
-              <option value="5">周五</option><option value="6">周六</option>
-              <option value="0">周日</option>
+        <!-- 拉取范围：最近 N 天 / 每周某天往前 N 次 / 日历自选 -->
+        <div class="filter-wrap" id="fw-range">
+          <div class="filter-chip" id="rangeChip" style="cursor:default;gap:6px" onclick="onRangeChipClick(event)">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="2.5" width="13" height="12" rx="1.5"/><path d="M1.5 6.5h13M5 1v3M11 1v3"/></svg>
+            <select id="rangeMode" class="inline-sel" onchange="onRangeModeChange()" onclick="event.stopPropagation()">
+              <option value="days">最近</option>
+              <option value="weekday">每周</option>
+              <option value="calendar">日历</option>
             </select>
-            <span style="color:var(--text3)">往前</span>
-            <input id="weeksInput" type="number" value="2" min="1" max="8" class="inline-num" onchange="onRangeChange()">
-            次
-          </span>
+            <span id="rangeDaysWrap" style="display:inline-flex;align-items:center;gap:4px">
+              <input id="daysInput" type="number" value="7" min="1" max="60" class="inline-num">
+              天
+            </span>
+            <span id="rangeWeekdayWrap" style="display:none;align-items:center;gap:4px">
+              <select id="weekdaySel" class="inline-sel" onchange="onRangeChange()" onclick="event.stopPropagation()">
+                <option value="1">周一</option><option value="2">周二</option>
+                <option value="3">周三</option><option value="4">周四</option>
+                <option value="5">周五</option><option value="6">周六</option>
+                <option value="0">周日</option>
+              </select>
+              <span style="color:var(--text3)">往前</span>
+              <input id="weeksInput" type="number" value="2" min="1" max="8" class="inline-num" onchange="onRangeChange()">
+              次
+            </span>
+            <span id="rangeCalLabel" style="display:none;font-size:12px;color:var(--text2)"></span>
+          </div>
+          <div class="cal-panel" id="calPanel">
+            <div class="cal-head">
+              <div class="cal-nav">
+                <button type="button" onclick="calStep(-1)" title="上个月">‹</button>
+                <div class="cal-title" id="calTitle"></div>
+                <button type="button" onclick="calStep(1)" title="下个月">›</button>
+              </div>
+              <button type="button" class="cal-today" onclick="calGoToday()">回到今月</button>
+            </div>
+            <div class="cal-grid" id="calWdRow"></div>
+            <div class="cal-grid" id="calGrid"></div>
+            <div class="cal-foot">
+              <span class="cal-count" id="calCount">已选 0 天</span>
+              <div class="cal-acts">
+                <button type="button" class="cal-mini" onclick="calQuick(7)" title="选中今天起往前 7 天">最近7天</button>
+                <button type="button" class="cal-mini" onclick="calClear()">清空</button>
+                <button type="button" class="cal-mini" style="border-color:var(--accent);color:var(--accent);font-weight:600"
+                        onclick="calSubmit()" title="按选中的日期拉取活动">拉取所选</button>
+              </div>
+            </div>
+          </div>
         </div>
         <span class="stat-text" id="rangeHint" style="font-size:11px"></span>
         <label class="filter-chip" style="cursor:pointer;gap:6px"
@@ -1139,7 +1188,10 @@ let sortDir = -1;  // -1 = desc, 1 = asc
 let filterText = '';
 let catFilter = 'all';  // 'all' | 'new' | 'reopen'
 let openableFilter = 'all';  // 'all' | 'yes' | 'no' —— 是否可一键开团
-let rangeMode = 'days';      // 'days' = 最近 N 天 | 'weekday' = 每周某天往前 N 次
+let rangeMode = 'days';      // 'days' = 最近 N 天 | 'weekday' = 每周某天往前 N 次 | 'calendar' = 日历自选
+let calSel = new Set();      // 日历模式选中的日期（'YYYY-MM-DD'，含今天及过去）
+let calCursor = new Date();  // 日历当前展示的月份
+const CAL_MAX = 120;         // 单次最多选多少天（每天=服务端一个拉取窗口，别太贪）
 let includeFollowed = true; // 拉取时是否保留「我已跟过」的活动（默认保留，取消勾选才排除）
 
 // ── Init ──
@@ -1242,8 +1294,13 @@ async function init() {
   // ① 先接好纯本地的 UI 行为：任何一个网络请求失败，都不该让按钮/筛选整体失灵
   if (!uiWired) {
     uiWired = true;
+    // 日历面板内部的点击一律不冒泡到 document。否则点日期后 calRender 重建网格，
+    // 被点的按钮已脱离文档，document 里 e.target.closest('.filter-wrap') 失效，
+    // 会被误判成"点到外面"把日历弹掉（用户实测：选一个日期日历就跳掉）
+    document.getElementById('calPanel').addEventListener('click', e => e.stopPropagation());
     document.addEventListener('click', e => {
-      if (!e.target.closest('.filter-wrap')) closeAllDd();
+      // 日历面板只有「点到外面」才收；拉取/选日期都不该把它弹掉（用户要继续点日子）
+      if (!e.target.closest('.filter-wrap')) { closeAllDd(); closeCal(); }
     });
     // Days change → auto re-fetch（仅"最近 N 天"模式下生效）
     document.getElementById('daysInput').addEventListener('change', () => {
@@ -1351,6 +1408,7 @@ function toggleDd(ddId, chipId) {
 function closeAllDd() {
   document.querySelectorAll('.dropdown').forEach(d => d.classList.remove('open'));
   document.querySelectorAll('.filter-chip').forEach(c => c.classList.remove('open'));
+  // ⚠️ 故意不关日历面板：拉取/其他筛选动作不该把它弹掉，用户还要在里面点日子
 }
 
 // Category filter
@@ -1413,15 +1471,25 @@ function fmtMD(ymd) {
   return `${ymd.slice(5)}(${'日一二三四五六'[d.getDay()]})`;
 }
 function rangeDates() {
-  if (rangeMode !== 'weekday') return [];
-  const wd = Number(document.getElementById('weekdaySel').value);
-  const n = Math.max(1, Math.min(8, Number(document.getElementById('weeksInput').value) || 2));
-  const out = [];
-  for (let i = 1; i <= n; i++) out.push(fmtYMD(nthWeekdayBack(wd, i)));
-  return out;
+  if (rangeMode === 'weekday') {
+    const wd = Number(document.getElementById('weekdaySel').value);
+    const n = Math.max(1, Math.min(8, Number(document.getElementById('weeksInput').value) || 2));
+    const out = [];
+    for (let i = 1; i <= n; i++) out.push(fmtYMD(nthWeekdayBack(wd, i)));
+    return out;
+  }
+  if (rangeMode === 'calendar') return [...calSel].sort();
+  return [];
 }
 function updateRangeHint() {
   const el = document.getElementById('rangeHint');
+  if (rangeMode === 'calendar') {
+    const ds = rangeDates();
+    el.innerHTML = ds.length
+      ? `将拉取 <strong>${ds.length}</strong> 天（${fmtMD(ds[0])} ~ ${fmtMD(ds[ds.length - 1])}）`
+      : '请先在日历上选日期';
+    return;
+  }
   if (rangeMode !== 'weekday') { el.innerHTML = ''; return; }
   const ds = rangeDates();
   el.innerHTML = ds.length
@@ -1431,14 +1499,123 @@ function updateRangeHint() {
 function applyRangeMode(doFetch) {
   document.getElementById('rangeDaysWrap').style.display = rangeMode === 'days' ? 'inline-flex' : 'none';
   document.getElementById('rangeWeekdayWrap').style.display = rangeMode === 'weekday' ? 'inline-flex' : 'none';
+  document.getElementById('rangeCalLabel').style.display = rangeMode === 'calendar' ? '' : 'none';
+  document.getElementById('rangeChip').style.cursor = rangeMode === 'calendar' ? 'pointer' : 'default';
   document.getElementById('reopenPresetBtn').style.display = rangeMode === 'weekday' ? '' : 'none';
+  if (rangeMode === 'calendar') {
+    if (calSel.size === 0) calQuick(7);      // 刚切过来还没选 → 先默认最近7天，别让用户对着空日历发呆
+    openCal();
+  } else {
+    closeCal();
+  }
   if (rangeMode === 'weekday') { sortCol = 'totalOrders'; sortDir = -1; }
   updateRangeHint();
-  if (doFetch) startFetch();
+  updateCalLabel();
+  // 日历模式不自动拉取：选好日期后点「拉取所选」才拉（用户明确要求）
+  if (doFetch && rangeMode !== 'calendar') startFetch();
 }
 function onRangeModeChange() {
   rangeMode = document.getElementById('rangeMode').value;
   applyRangeMode(true);
+}
+
+// ── 日历自选（点格子=加/减一天；只有点「拉取所选」才真正拉，选日期/翻月/关面板都不拉）──
+function onRangeChipClick(ev) {
+  if (rangeMode !== 'calendar') return;
+  if (ev && ev.target.closest('#calPanel')) return;
+  const panel = document.getElementById('calPanel');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) calRender();
+}
+function openCal() { document.getElementById('calPanel').classList.add('open'); calRender(); }
+function closeCal() { document.getElementById('calPanel').classList.remove('open'); }
+function calToday0() { const t = new Date(); t.setHours(0, 0, 0, 0); return t; }
+function calBuildWdRow() {
+  const row = document.getElementById('calWdRow');
+  if (row.dataset.built) return;
+  row.innerHTML = ['一', '二', '三', '四', '五', '六', '日']
+    .map(w => `<div class="cal-wd">${w}</div>`).join('');
+  row.dataset.built = '1';
+}
+function calRender() {
+  calBuildWdRow();
+  const y = calCursor.getFullYear(), m = calCursor.getMonth();
+  document.getElementById('calTitle').textContent = `${y}年${m + 1}月`;
+  const first = new Date(y, m, 1);
+  const offset = (first.getDay() + 6) % 7;                 // 周一为一周起点
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const prevDays = new Date(y, m, 0).getDate();
+  const cells = [];
+  for (let i = 0; i < offset; i++) cells.push({ y: (m === 0 ? y - 1 : y), m: (m === 0 ? 11 : m - 1), d: prevDays - offset + 1 + i, dim: true });
+  for (let i = 1; i <= daysInMonth; i++) cells.push({ y, m, d: i, dim: false });
+  let nm = m + 1, ny = y;
+  if (nm > 11) { nm = 0; ny += 1; }
+  let nd = 1;
+  while (cells.length % 7 !== 0) cells.push({ y: ny, m: nm, d: nd++, dim: true });
+
+  const today = calToday0();
+  const grid = document.getElementById('calGrid');
+  grid.innerHTML = '';
+  cells.forEach(c => {
+    const p = n => String(n).padStart(2, '0');
+    const ymd = `${c.y}-${p(c.m + 1)}-${p(c.d)}`;
+    const dt = new Date(c.y, c.m, c.d);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'cal-day' + (c.dim ? ' dim' : '') + (calSel.has(ymd) ? ' sel' : '')
+      + (dt.getTime() === today.getTime() ? ' today' : '');
+    btn.textContent = c.d;
+    btn.title = ymd + (dt.getTime() === today.getTime() ? '（今天）' : '');
+    if (dt > today) { btn.disabled = true; btn.title = '只能选今天及以前（拉取是往回看）'; }
+    else btn.onclick = () => calToggle(ymd);
+    grid.appendChild(btn);
+  });
+  updateCalLabel();
+}
+function calToggle(ymd) {
+  if (calSel.has(ymd)) calSel.delete(ymd);
+  else {
+    if (calSel.size >= CAL_MAX) { flashCalCount(); return; }
+    calSel.add(ymd);
+  }
+  calRender();
+  updateRangeHint();
+}
+function calStep(k) {
+  calCursor.setMonth(calCursor.getMonth() + k);
+  calRender();
+}
+function calGoToday() { calCursor = calToday0(); calRender(); }
+function calQuick(n) {
+  const t = calToday0();
+  calSel = new Set();
+  for (let i = 0; i < n; i++) {
+    const d = new Date(t); d.setDate(t.getDate() - i);
+    calSel.add(fmtYMD(d));
+  }
+  calRender();
+  updateRangeHint();
+}
+function calClear() {
+  calSel.clear();
+  calRender();
+  updateRangeHint();
+}
+function calSubmit() { startFetch(); }
+function updateCalLabel() {
+  const n = calSel.size;
+  document.getElementById('calCount').textContent = `已选 ${n} 天`;
+  const el = document.getElementById('rangeCalLabel');
+  el.textContent = n ? `已选 ${n} 天` : '未选日期';
+  el.title = n ? [...calSel].sort().map(fmtMD).join(' · ') : '';
+}
+let calFlashTimer = null;
+function flashCalCount() {
+  const el = document.getElementById('calCount');
+  el.textContent = `最多选 ${CAL_MAX} 天`;
+  el.classList.add('warn');
+  clearTimeout(calFlashTimer);
+  calFlashTimer = setTimeout(() => { el.classList.remove('warn'); updateCalLabel(); }, 1600);
 }
 function onIncludeFollowedChange() {
   includeFollowed = document.getElementById('includeFollowed').checked;
@@ -1630,6 +1807,12 @@ async function startFetch() {
     include_followed: includeFollowed,
     keywords: ghKeywords(),
   };
+
+  if (rangeMode === 'calendar' && body.dates.length === 0) {
+    addLine(log, '请先在日历上选至少一个日期', 'err');
+    if (rangeMode === 'calendar') openCal();
+    btn.disabled = false; btn.textContent = '刷新列表'; return;
+  }
 
   let reader;
   try {
