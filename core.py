@@ -1141,7 +1141,8 @@ def batch_open_groups(config, act_ids, q, dry_run=False, delay=1.0, jitter=0.0,
             q.put({"type": "aborted", "index": i + 1, "total": total})
             break
         try:
-            ok, new_id, act_name, err = open_one_group(config, act_id, dry_run)
+            curr_cfg = config() if callable(config) else config
+            ok, new_id, act_name, err = open_one_group(curr_cfg, act_id, dry_run)
             entry = {
                 "type": "item",
                 "index": i + 1,

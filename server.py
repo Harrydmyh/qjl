@@ -505,7 +505,7 @@ def _job_thread(job_id, act_ids, dry_run, delay, jitter, start_ts):
             # _open_lock 永久泄漏（开团按钮一直禁用 / 后续都 409）。
             try:
                 core.batch_open_groups(
-                    load_config(), act_ids, inner_q, dry_run, delay, jitter, should_stop)
+                    load_config, act_ids, inner_q, dry_run, delay, jitter, should_stop)
             except Exception as e:
                 _job_push("err", f"任务异常：{type(e).__name__}: {e}")
                 _job_update(state="failed", error=f"{type(e).__name__}: {e}",
