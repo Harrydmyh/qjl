@@ -302,6 +302,8 @@ def main():
     ap.add_argument("--page-cap", type=int, default=40)
     ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--out", default=None)
+    ap.add_argument("--skip-local-log", action="store_true",
+                    help="不合并 open_log/auto_open_log 的帮卖记录（换账号时用：那些记录是旧账号干的，不能算到新账号头上）")
     args = ap.parse_args()
 
     config = json.load(open("data/config.json", encoding="utf-8"))
@@ -341,7 +343,9 @@ def main():
     # 2) 最近帮卖日期
     print("拉取平台侧帮卖子团记录...", flush=True)
     api_dates = fetch_api_help_sale_dates(list(hits.keys()), gh_id, headers, args.workers)
-    local_dates = load_local_help_sale_dates()
+    local_dates = {} if args.skip_local_log else load_local_help_sale_dates()
+    if args.skip_local_log:
+        print("（--skip-local-log：帮卖日期只算当前账号的平台侧记录）", flush=True)
 
     rows = []
     helped = 0
