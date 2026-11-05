@@ -127,6 +127,12 @@ td.num{color:var(--text2)}
 .tag-noopen{background:var(--surface3);color:var(--text3);cursor:help}
 tr.row-noopen{opacity:.55}
 tr.row-noopen:hover{background:transparent}
+/* 被品类排除的行（食品/保健/低值）：灰显 + 勾选框禁用 */
+tr.row-blocked{opacity:.5}
+tr.row-blocked:hover{background:transparent}
+.tag-kind{background:var(--red-bg);color:var(--red);cursor:help}
+.tag-kind-open{background:var(--surface3);color:var(--text3)}
+.act-cb:disabled{cursor:not-allowed}
 input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;cursor:pointer}
 
 /* ── Progress ── */
@@ -212,7 +218,7 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
 /* ── Modal ── */
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.65);display:none;align-items:center;justify-content:center;z-index:500}
 .overlay.open{display:flex}
-.modal{background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:24px;width:420px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,.5)}
+.modal{background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:24px;width:420px;max-width:95vw;box-shadow:0 24px 48px rgba(0,0,0,.5);max-height:88vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .modal h2{font-size:15px;font-weight:600;margin-bottom:16px}
 .mfield{margin-bottom:14px}
 .mfield label{display:block;font-size:11px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
@@ -776,6 +782,31 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
           </div>
         </div>
 
+        <!-- 品类排除：食品生鲜 / 保健品 / 低值（9.9 及以下） -->
+        <div class="filter-wrap" id="fw-kind">
+          <div class="filter-chip" id="chip-kind" onclick="toggleDd('dd-kind','chip-kind')"
+               title="平台类目字段不准，这里由 AI（DeepSeek）按商品名判：食品生鲜（入口吃的）、保健品、整团 ≤9.9 的低值消耗品。勾上 = 排除，不予开团。">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2.5 3.5h11l-4.2 5v4l-2.6 1.2v-5.2z"/></svg>
+            品类
+            <span class="chip-count" id="cc-kind" style="display:none"></span>
+            <svg class="chip-arrow" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 3.5l3 3 3-3"/></svg>
+          </div>
+          <div class="dropdown" id="dd-kind" style="min-width:250px">
+            <label class="dd-item"><input type="checkbox" checked data-kind="food" onchange="onKindChange('food',this)"> 食品生鲜
+              <span style="color:var(--text3);font-size:11px">· 入口吃的</span></label>
+            <label class="dd-item"><input type="checkbox" checked data-kind="health" onchange="onKindChange('health',this)"> 保健品
+              <span style="color:var(--text3);font-size:11px">· 维生素/益生菌…</span></label>
+            <label class="dd-item"><input type="checkbox" checked data-kind="low" onchange="onKindChange('low',this)"> 低值消耗品
+              <span style="color:var(--text3);font-size:11px">· 整团 ≤9.9</span></label>
+            <hr class="dd-sep">
+            <label class="dd-item"><input type="checkbox" id="hideKindExcluded" onchange="onHideKindExcluded(this)">
+              隐藏被排除的行（默认全部显示并打标）</label>
+            <div style="padding:6px 10px 4px;font-size:11px;color:var(--text3);line-height:1.55">
+              判据只由 AI（DeepSeek）看商品名判断，不看平台类目（类目大量挂错）；AI 不通时这批不做品类过滤，日志里会提示。
+            </div>
+          </div>
+        </div>
+
         <!-- 供应商筛选 -->
         <div class="filter-wrap" id="fw-gh">
           <div class="filter-chip" id="chip-gh" onclick="toggleDd('dd-gh','chip-gh')">
@@ -896,8 +927,8 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
           <div class="filter-chip" id="cf-all" onclick="setCatFilter('all')" style="border-color:var(--accent);color:var(--accent)">全部</div>
           <div class="filter-chip" id="cf-new" onclick="setCatFilter('new')">新活动</div>
           <div class="filter-chip" id="cf-reopen" onclick="setCatFilter('reopen')">可复开 <span class="chip-count" id="reopen-count" style="display:none"></span></div>
-          <div class="filter-chip" id="cf-followed" onclick="setCatFilter('followed')" style="display:none"
-               title="我已经跟过团的活动——复团的候选，实测可以再开一次">已跟过 <span class="chip-count" id="followed-count" style="display:none"></span></div>
+          <div class="filter-chip" id="cf-old5" onclick="setCatFilter('old5')" style="display:none"
+               title="我自己开过、且开团时间已超过 5 天的活动——5 天冷却已过，可以再开一次（这类默认也会勾进开团范围）">开团&gt;5天 <span class="chip-count" id="old5-count" style="display:none"></span></div>
         </div>
 
         <!-- 可开团状态 -->
@@ -992,8 +1023,8 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
           <div class="filter-chip" id="ocf-all" onclick="setOpenCatFilter('all')" style="border-color:var(--accent);color:var(--accent)">全部</div>
           <div class="filter-chip" id="ocf-new" onclick="setOpenCatFilter('new')">新活动</div>
           <div class="filter-chip" id="ocf-reopen" onclick="setOpenCatFilter('reopen')">可复开</div>
-          <div class="filter-chip" id="ocf-followed" onclick="setOpenCatFilter('followed')"
-               title="我已经跟过团的活动（需在活动列表勾上「含已跟过」再拉取）">已跟过</div>
+          <div class="filter-chip" id="ocf-old5" onclick="setOpenCatFilter('old5')"
+               title="我自己开过、开团时间已超过 5 天的活动（5 天冷却已过，可复开）">开团&gt;5天</div>
         </div>
         <input id="openSearchInput" type="text" placeholder="搜索..."
           style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:5px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;width:160px;outline:none"
@@ -1058,7 +1089,19 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
             </div>
             <div style="margin-bottom:10px">
               <div style="font-size:11px;color:var(--text3);margin-bottom:4px">开始时间（留空 = 立即）</div>
-              <input class="side-input" id="startAtInput" type="datetime-local" style="width:100%">
+              <input class="side-input" id="startAtInput" type="datetime-local" style="width:100%"
+                     placeholder="2026-11-05 21:30"
+                     oninput="updateStartAtReadout()" onchange="updateStartAtReadout()">
+              <div id="startAtReadout" style="font-size:11px;color:var(--text3);margin-top:4px;line-height:1.5">未设置 · 立即开始</div>
+              <!-- iPad / iOS 的 datetime-local 有时不给提交值（滚完没按 Done 就没有 value），
+                   所以再给一排快捷按钮兜底：点一下就写进 input，不依赖系统选择器。 -->
+              <div style="display:flex;gap:4px;margin-top:6px;flex-wrap:wrap">
+                <button type="button" class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="startAtQuick(10)">+10分</button>
+                <button type="button" class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="startAtQuick(30)">+30分</button>
+                <button type="button" class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="startAtClock(20,0)">今晚20:00</button>
+                <button type="button" class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="startAtClock(9,0,1)">明早9:00</button>
+                <button type="button" class="btn btn-ghost" style="font-size:11px;padding:3px 8px" onclick="startAtClear()">清空</button>
+              </div>
             </div>
             <div class="side-field">
               <span>Dry-run 模式</span>
@@ -1291,6 +1334,7 @@ document.addEventListener('keydown', e => {
 let uiWired = false;   // init() 可能因「重试」被再次调用，本地监听只接一次
 
 async function init() {
+  updateStartAtReadout();   // 开始时间读数行（iPad 上靠它确认到底选没选中）
   // ① 先接好纯本地的 UI 行为：任何一个网络请求失败，都不该让按钮/筛选整体失灵
   if (!uiWired) {
     uiWired = true;
@@ -1445,6 +1489,9 @@ function updateUpChip() {
 function onUpChange(id, cb) {
   if (cb.checked) selectedUp.add(id); else selectedUp.delete(id);
   updateUpChip();
+  // 先本地重建：供应商列表 + 表格立刻跟着变（不等服务端那 10 多秒）
+  buildGhOptions();
+  renderActivities();
   startFetch();
 }
 
@@ -1666,12 +1713,30 @@ function escAttr(s) {
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
                   .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+// 供应类型在本地怎么认：平台只给了 filterFeedDTO.upStreamTypeList（2=团长自营团 / 3=品牌供货），
+// 详情里没有 upStreamType 字段，但它和 activityType / hasFollowRelation 是**一一对应**的
+// （实测 874 条：activityType=10 恒 hasFollowRelation=false，150 恒 true）：
+//   activityType=10  → 团长自营团（未开跟团功能，开团必失败）
+//   activityType=150 → 品牌供货活动
+// 用这个映射，勾掉「团长自营团」时供应商列表和表格都能**立刻**反应，不用等重新拉取。
+function upTypeOf(a) {
+  if (a.upStreamType === 2 || a.upStreamType === 3) return a.upStreamType;
+  return (a.activityType === 10 || a.hasFollowRelation === false) ? 2 : 3;
+}
+function upFilterOn() { return selectedUp.size > 0 && selectedUp.size < 2; }
+function baseForGh() {
+  return upFilterOn() ? activities.filter(a => selectedUp.has(upTypeOf(a))) : activities;
+}
+
 function buildGhOptions() {
   const prev = new Set(selectedGh);
   const prevWasAll = ghAll.length === 0 || prev.size === 0 || prev.size === ghAll.length;
 
+  // 供应商候选只统计「当前供应类型勾选范围内」的活动 ——
+  // 取消勾选「团长自营团」后，那些只有自营团的供应商会直接从列表里消失。
+  const base = baseForGh();
   ghCounts = {};
-  activities.forEach(a => { const n = a.ghName || ''; ghCounts[n] = (ghCounts[n] || 0) + 1; });
+  base.forEach(a => { const n = a.ghName || ''; ghCounts[n] = (ghCounts[n] || 0) + 1; });
   ghAll = Object.keys(ghCounts).sort(
     (a, b) => ghCounts[b] - ghCounts[a] || a.localeCompare(b));
 
@@ -1714,8 +1779,11 @@ function renderGhOptions() {
   const foot = document.getElementById('ghFoot');
   if (foot) {
     const kws = ghKeywords();
-    foot.innerHTML = `选项来自当前已拉取的 <strong>${activities.length}</strong> 条数据`
+    foot.innerHTML = `选项来自当前已拉取的 <strong>${baseForGh().length}</strong> 条数据`
       + `（${ghAll.length} 个供应商）`
+      + (upFilterOn()
+          ? `<br>已按供应类型收窄：只统计「${[...selectedUp].map(u => u === 2 ? '团长自营团' : '品牌供货活动').join('、')}」下的活动`
+          : '')
       + (kws.length ? `<br>本次为定向拉取：<strong>${esc(kws.join(' · '))}</strong>` : '');
   }
 }
@@ -1888,9 +1956,19 @@ function addLine(container, text, cls) {
 }
 
 // ── Category filter ──
+// 品类排除开关：勾上 = 这一类全部排除（不予开团）；取消勾选 = 放出来仍可开
+function onKindChange(kind, cb) {
+  hideKinds[kind] = cb.checked;
+  renderActivities();
+}
+function onHideKindExcluded(cb) {
+  hideKindExcluded = cb.checked;
+  renderActivities();
+}
+
 function setCatFilter(val) {
   catFilter = (val === catFilter && val !== 'all') ? 'all' : val;
-  ['all','new','reopen','followed'].forEach(k => {
+  ['all','new','reopen','old5'].forEach(k => {
     const el = document.getElementById('cf-'+k);
     el.style.borderColor = k === catFilter ? 'var(--accent)' : '';
     el.style.color = k === catFilter ? 'var(--accent)' : '';
@@ -1932,7 +2010,7 @@ function clearAllFilters() {
   filterText = '';
   document.getElementById('searchInput').value = '';
   catFilter = 'all';
-  ['all','new','reopen','followed'].forEach(k => {
+  ['all','new','reopen','old5'].forEach(k => {
     const el = document.getElementById('cf-'+k);
     el.style.borderColor = k === 'all' ? 'var(--accent)' : '';
     el.style.color = k === 'all' ? 'var(--accent)' : '';
@@ -1955,7 +2033,15 @@ function clearAllFilters() {
 // 单一筛选谓词：ignoreCatChip=true 时忽略顶部"全部/新活动/可复开"chip
 // （用于计算"可复开"角标数量——它本身就是那个 chip 的候选池）
 function passFilters(a, ignoreCatChip) {
-  if (!ignoreCatChip && catFilter !== 'all' && a.category !== catFilter) return false;
+  if (!ignoreCatChip && catFilter !== 'all') {
+    // 「开团>5天」不按后端分桶，按「我自己开过 + 距今 ≥5 天」实时算
+    if (catFilter === 'old5') { if (!isOld5(a)) return false; }
+    else if (a.category !== catFilter) return false;
+  }
+  // 品类排除：食品生鲜 / 保健品 / 低值消耗品，默认直接不显示（可在品类菜单里改成灰显）
+  if (hideKindExcluded && isKindExcluded(a)) return false;
+  // 供应类型：取消勾选「团长自营团」后，自营团的行也不该再留在表里
+  if (upFilterOn() && !selectedUp.has(upTypeOf(a))) return false;
   // 是否可开团（任何情况下都生效，它是"能不能真的开出团"的前置条件）
   // 口径 = 「现在能不能开」：既要有跟团关系，也要没落在「同款 5 天内已开」的冷却里
   if (openableFilter !== 'all') {
@@ -2001,28 +2087,60 @@ function canOpenAct(a) {
 function isRecentlyOpened(a) {
   return !!a.recentlyOpened;
 }
-// 「现在能不能开」= 支持跟团开团 且 同款不在 5 天冷却内
+// ── 品类（食品生鲜 / 保健品 / 低值）──
+// 后端 parse_item 已经按「商品名 + 标题关键词 + 整团最高价」判好了三个标记，这里只负责排除。
+// 为什么不用平台类目：帮卖广场的类目字段大量挂错（实测），只能自己判。
+let hideKinds = { food: true, health: true, low: true };  // true = 排除这类
+let hideKindExcluded = false;   // 默认 false = 全部显示（被排除的只打标 + 灰显 + 锁勾选），true 才整行隐藏
+
+function kindTags(a) {
+  const t = [];
+  if (a.isFood) t.push('food');
+  if (a.isHealth) t.push('health');
+  if (a.isLowValue) t.push('low');
+  return t;
+}
+function isKindExcluded(a) {
+  return kindTags(a).some(k => hideKinds[k]);
+}
+const KIND_LABEL = { food: '食品生鲜', health: '保健品', low: '低值≤9.9' };
+function kindLabel(a) {
+  return kindTags(a).map(k => KIND_LABEL[k]).join('·');
+}
+// 「开团时间在 5 天以上」= 我自己开过，且距今 ≥5 天（5 天冷却已过，能再开一次）
+function isOld5(a) {
+  return a.daysSinceOpen != null && a.daysSinceOpen >= 5;
+}
+// 「现在能不能开」= 支持跟团开团 且 同款不在 5 天冷却内 且 不是被排除的品类
 function isOpenBlocked(a) {
-  return !canOpenAct(a) || isRecentlyOpened(a);
+  return !canOpenAct(a) || isRecentlyOpened(a) || isKindExcluded(a);
+}
+// 勾选框锁死：5 天内已开的（冷却中）、被品类排除的 —— 都不让勾，避免误开
+function isCbLocked(a) {
+  return isRecentlyOpened(a) || isKindExcluded(a);
 }
 // 「已跟过」= 平台字段 isFollow：你已经跟过/开过这个团。
 // 这是工具**唯一能看到**的「我自己开过」的证据 —— 它只能看到帮卖广场，
 // 看不到你自己在群接龙里开的团（实测自己账号的活动在广场里一条都没有）。
 // 所以这类行在开团面板里**默认不勾选**（仍可手动勾上再开），避免同一款被反复开。
 function isAlreadyFollowed(a) { return !!a.alreadyFollowed; }
-// 开团面板的默认勾选：能开 且 不是「已跟过」
-function isDefaultOpenPick(a) { return !isOpenBlocked(a) && !isAlreadyFollowed(a); }
+// 开团面板的默认勾选：能开、不是被排除的品类；「已跟过」默认不勾，
+// 但「开团时间 >5 天」（冷却已过、可以复开）的那部分默认勾上。
+function isDefaultOpenPick(a) {
+  return !isOpenBlocked(a) && (!isAlreadyFollowed(a) || isOld5(a));
+}
 function openableCount(list) {
   return list.reduce((n, a) => n + (isOpenBlocked(a) ? 0 : 1), 0);
 }
 // 跳过原因分类（用于文案：让用户知道为什么这几个没被开）
 function skipBreakdown(list) {
-  let noFollow = 0, cooldown = 0;
+  let noFollow = 0, cooldown = 0, kind = 0;
   list.forEach(a => {
     if (!canOpenAct(a)) noFollow++;
     else if (isRecentlyOpened(a)) cooldown++;
+    else if (isKindExcluded(a)) kind++;     // 食品生鲜 / 保健品 / 低值：被品类挡掉的
   });
-  return { noFollow, cooldown, total: noFollow + cooldown };
+  return { noFollow, cooldown, kind, total: noFollow + cooldown + kind };
 }
 // 冷却中文案：「同款 3 天前开过」
 function cooldownText(a) {
@@ -2073,8 +2191,9 @@ function syncSortBar() {
 function getReopenCount() {
   return activities.filter(a => a.category === 'reopen' && passFilters(a, true)).length;
 }
-function getFollowedCount() {
-  return activities.filter(a => a.category === 'followed' && passFilters(a, true)).length;
+function getOld5Count() {
+  // 「开团>5天」= 我自己开过且距今 ≥5 天（不按后端分桶，直接按 daysSinceOpen 算）
+  return activities.filter(a => isOld5(a) && passFilters(a, true)).length;
 }
 function updateSortHeaders() {
   document.querySelectorAll('th.sortable').forEach(th => {
@@ -2141,29 +2260,49 @@ function renderActivities() {
   if (reopenCnt) { rcEl.style.display = ''; rcEl.textContent = reopenCnt; }
   else rcEl.style.display = 'none';
 
-  // 「已跟过」chip 只在数据里真有这类活动时才显示（即拉取时勾了「含已跟过」）
-  const followedTotal = activities.filter(a => a.category === 'followed').length;
-  const cfFollowed = document.getElementById('cf-followed');
-  if (cfFollowed) cfFollowed.style.display = followedTotal ? '' : 'none';
-  const followedCnt = getFollowedCount();
-  const fcEl = document.getElementById('followed-count');
-  if (fcEl) {
-    if (followedCnt) { fcEl.style.display = ''; fcEl.textContent = followedCnt; }
-    else fcEl.style.display = 'none';
+  // 「开团>5天」chip：只要数据里有「我开过且过了 5 天冷却」的活动就显示
+  const old5Total = activities.filter(a => isOld5(a)).length;
+  const cfOld5 = document.getElementById('cf-old5');
+  if (cfOld5) cfOld5.style.display = old5Total ? '' : 'none';
+  const old5Cnt = getOld5Count();
+  const oc5 = document.getElementById('old5-count');
+  if (oc5) {
+    if (old5Cnt) { oc5.style.display = ''; oc5.textContent = old5Cnt; }
+    else oc5.style.display = 'none';
+  }
+  // 品类排除计数：让用户随时知道「有多少条被品类挡掉了」
+  const kindCnt = { food: 0, health: 0, low: 0 };
+  activities.forEach(a => kindTags(a).forEach(k => { if (hideKinds[k]) kindCnt[k]++; }));
+  const kindTotal = activities.filter(a => isKindExcluded(a)).length;
+  const ccKind = document.getElementById('cc-kind');
+  if (ccKind) {
+    if (kindTotal) { ccKind.style.display = ''; ccKind.textContent = kindTotal; }
+    else ccKind.style.display = 'none';
   }
 
   // 计数：任何筛选生效时都显示 命中/总数，否则显示总数
   stat.innerHTML = (anyFilterActive()
     ? `筛选后 <strong>${visible.length}</strong> / 共 ${activities.length} 条`
     : `共 <strong>${activities.length}</strong> 条`)
+    + (kindTotal
+        ? ` <span style="color:var(--yellow)" title="食品生鲜 ${kindCnt.food} / 保健品 ${kindCnt.health} / 低值 ${kindCnt.low}。按商品名+标题关键词判，不是平台类目；在「品类」菜单里取消勾选即可放开">· 品类已排除 ${kindTotal}（食${kindCnt.food}/保${kindCnt.health}/低${kindCnt.low}）</span>`
+        : '')
     + (selDropped
         ? ` <span style="color:var(--yellow)" title="这些活动已被当前筛选条件排除，不能再被开团">· 已取消 ${selDropped} 个筛外勾选</span>`
         : '');
 
+  // 锁死的行（5 天内已开 / 品类排除）不允许留在勾选里 —— 否则「开 N 个」会算进它们
+  [...selectedIds].forEach(id => {
+    const a = activities.find(x => x.actId === id);
+    if (a && isCbLocked(a)) selectedIds.delete(id);
+  });
+
   body.innerHTML = visible.map(a => `
-    <tr class="${canOpenAct(a)?'':'row-noopen'}">
+    <tr class="${canOpenAct(a)?'':'row-noopen'}${isKindExcluded(a)?' row-blocked':''}">
       <td><input type="checkbox" class="act-cb" data-id="${a.actId}"
-        ${selectedIds.has(a.actId)?'checked':''} onchange="onActCb(this)"></td>
+        ${selectedIds.has(a.actId)?'checked':''}
+        ${isCbLocked(a)?`disabled title="${isRecentlyOpened(a)?'这款（含同款）5 天内你已经开过，冷却中，不能勾选':'品类被排除（食品/保健/低值），不能勾选'}"`:''}
+        onchange="onActCb(this)"></td>
       <td style="white-space:nowrap;font-size:11px;color:var(--text3);font-variant-numeric:tabular-nums">
         ${esc(a.startTimeStr||'—')}
         ${a.category==='reopen'?`<div style="color:var(--yellow);margin-top:2px">复开${a.daysSinceOpen!=null?' · '+a.daysSinceOpen+'天前':''}</div>`:''}
@@ -2183,6 +2322,7 @@ function renderActivities() {
       <td class="num">${a.totalOrders||0}</td>
       <td class="cell-name">
         <div class="name-main" style="font-size:12px">${esc(a.goodsName)}</div>
+        ${kindLabel(a)?`<div style="margin-top:3px"><span class="tag tag-kind${isKindExcluded(a)?'':' tag-kind-open'}" title="AI 按商品名判定：${kindLabel(a)}。${isKindExcluded(a)?'汤团² 不开这类 —— 勾选框已锁死，不参与开团；在「品类」菜单里取消勾选即可放行':'已放行：这一类你取消勾选了，可以开团'}">${kindLabel(a)}</span></div>`:''}
         ${a.commissionPct?`<div class="name-sub">佣金率 ${esc(a.commissionPct)}</div>`:''}
       </td>
       <td>${esc(a.ghName||'')}${a.starGh?' <span class="tag tag-star">星</span>':''}
@@ -2231,6 +2371,7 @@ async function markOpened(actId) {
 }
 function toggleSelectAll(cb) {
   document.querySelectorAll('.act-cb').forEach(el => {
+    if (el.disabled) return;              // 5 天内已开 / 品类排除的行是锁死的，全选也不碰
     el.checked = cb.checked;
     const id = Number(el.dataset.id);
     if (cb.checked) selectedIds.add(id); else selectedIds.delete(id);
@@ -2238,9 +2379,9 @@ function toggleSelectAll(cb) {
   updateSelUI();
 }
 function selectAllActs() {
-  // 只选当前筛选结果——与表头复选框、开团面板保持一致口径
-  getFiltered().forEach(a => selectedIds.add(a.actId));
-  document.querySelectorAll('.act-cb').forEach(cb => cb.checked = true);
+  // 只选当前筛选结果——与表头复选框、开团面板保持一致口径；锁死的行跳过
+  getFiltered().forEach(a => { if (!isCbLocked(a)) selectedIds.add(a.actId); });
+  document.querySelectorAll('.act-cb').forEach(cb => { if (!cb.disabled) cb.checked = true; });
   document.getElementById('selectAll').checked = true;
   updateSelUI();
 }
@@ -2268,11 +2409,14 @@ function updateSelUI() {
   if (mCount) mCount.textContent = selectedIds.size ? `已选 ${selectedIds.size}` : '未选';
   const vis = getFiltered();
   const mLabel = document.getElementById('mSelAllLabel');
-  if (mLabel) mLabel.textContent = vis.length ? `全选 (${vis.length})` : '全选';
+  // 全选按钮的口径 = 「能勾的个数」，被锁死的（5 天内已开 / 品类排除）不算进去，
+  // 否则文案说 875、实际只勾 679，用户会以为漏了。
+  const pickable = vis.filter(a => !isCbLocked(a)).length;
+  if (mLabel) mLabel.textContent = pickable ? `全选 (${pickable})` : '全选';
   const openableVis = openableCount(vis);
   const selAllBtn = document.getElementById('selAllBtn');
   selAllBtn.style.display = hasAny ? 'none' : '';
-  selAllBtn.textContent = `全选筛选结果 (${vis.length})`;
+  selAllBtn.textContent = `全选筛选结果 (${pickable})`;
   selAllBtn.title = '只勾选当前筛选出来的活动';
   document.getElementById('clearSelBtn').style.display = hasAny ? '' : 'none';
 
@@ -2345,7 +2489,11 @@ function renderOpenTab() {
 
   // 面板内筛选直接决定"将要开团的范围"——所见即所开
   let visible = base;
-  if (openCatFilter !== 'all') visible = visible.filter(a => a.category === openCatFilter);
+  if (openCatFilter !== 'all') {
+    visible = openCatFilter === 'old5'
+      ? visible.filter(a => isOld5(a))
+      : visible.filter(a => a.category === openCatFilter);
+  }
   if (openFilterText) {
     const q = openFilterText.toLowerCase();
     visible = visible.filter(a =>
@@ -2393,7 +2541,7 @@ function renderOpenTab() {
 
 function setOpenCatFilter(val) {
   openCatFilter = (val === openCatFilter && val !== 'all') ? 'all' : val;
-  ['all','new','reopen','followed'].forEach(k => {
+  ['all','new','reopen','old5'].forEach(k => {
     const el = document.getElementById('ocf-'+k);
     el.style.borderColor = k === openCatFilter ? 'var(--accent)' : '';
     el.style.color = k === openCatFilter ? 'var(--accent)' : '';
@@ -2444,6 +2592,7 @@ function skipReasonText(d) {
   const parts = [];
   if (d.noFollow) parts.push(`${d.noFollow} 个未开启跟团功能`);
   if (d.cooldown) parts.push(`${d.cooldown} 个同款 5 天内已开`);
+  if (d.kind) parts.push(`${d.kind} 个是食品/保健/低值（按你的品类设置排除）`);
   return parts.join(' · ');
 }
 function updateOpenStat(visibleCount, totalCount) {
@@ -2568,6 +2717,85 @@ function renderJob(st) {
   }
 }
 
+// ── 开始时间：解析 / 格式化 / 快捷按钮 ──
+// iPad / iOS 的 `<input type="datetime-local">` 有个坑：选择器滚完不点「完成」就没有 value，
+// 于是「定时开团」静默退化成「立即开团」——报错都没有，看起来就是"没成功"。
+// 这里补三件事：
+//   ① 宽容解析：2026-11-05T21:30 / 2026-11-05 21:30 / 11-05 21:30 / 21:30（今天）/ 202611052130
+//      原生控件不支持时 input 会退化成文本框，这套解析照样能用
+//   ② 快捷按钮：+10分 / +30分 / 今晚20:00 / 明早9:00，完全不依赖系统选择器
+//   ③ 读数行：把「当前真正会用的开始时间」写出来，选没选中一眼可见
+function pad2(n) { return String(n).padStart(2, '0'); }
+// 统一发给后端的格式（不带秒，和后端 datetime.fromisoformat 对齐）
+function fmtLocalDT(d) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+       + `T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+function fmtCN(d) { return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; }
+function parseLocalDT(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return null;
+  let m;
+  // 完整日期 + 时分（T 或空格分隔，秒可选）
+  m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  // 只给月日（补当年）
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})[T\s]+(\d{1,2}):(\d{2})$/);
+  if (m) return new Date(new Date().getFullYear(), +m[1] - 1, +m[2], +m[3], +m[4]);
+  // 只给时分（今天）
+  m = s.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) { const d = new Date(); d.setHours(+m[1], +m[2], 0, 0); return d; }
+  // 202611052130
+  m = s.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})$/);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  // 兜底：交给引擎（部分浏览器认 "Nov 5 2026 21:30" 这类）
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+function startAtSet(d) {
+  const el = document.getElementById('startAtInput');
+  const v = fmtLocalDT(d);
+  el.value = v;
+  updateStartAtReadout();
+  closeAllDd();
+}
+function startAtQuick(min) { startAtSet(new Date(Date.now() + min * 60000)); }
+// h:m 点开团；dayOffset=1 → 明天（今天已过这个点也自动顺延到明天）
+function startAtClock(h, m, dayOffset) {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (dayOffset || 0), h, m, 0, 0);
+  if (!dayOffset && d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
+  startAtSet(d);
+}
+function startAtClear() {
+  document.getElementById('startAtInput').value = '';
+  updateStartAtReadout();
+}
+function updateStartAtReadout() {
+  const el = document.getElementById('startAtReadout');
+  if (!el) return;
+  const raw = (document.getElementById('startAtInput').value || '').trim();
+  if (!raw) {
+    el.textContent = '未设置 · 立即开始';
+    el.style.color = 'var(--text3)';
+    return;
+  }
+  const d = parseLocalDT(raw);
+  if (!d) {
+    el.textContent = `⚠ 看不懂这个时间：「${raw}」`;
+    el.style.color = 'var(--red)';
+    return;
+  }
+  const diff = d.getTime() - Date.now();
+  if (diff < -5000) {
+    el.textContent = `⚠ ${fmtCN(d)} 已经过去了`;
+    el.style.color = 'var(--red)';
+    return;
+  }
+  el.textContent = `已选 ${fmtCN(d)} · ${fmtSpan(Math.round(diff / 1000))}后开始`;
+  el.style.color = 'var(--accent)';
+}
+
 async function startOpen() {
   if (!openIds.size) {
     await uiAlert(openSkipped > 0
@@ -2580,13 +2808,16 @@ async function startOpen() {
   const dryRun = document.getElementById('dryRunToggle').checked;
   const delay = delaySeconds();
   const jitter = jitterSeconds();
-  const atRaw = document.getElementById('startAtInput').value;
+  const atRaw = (document.getElementById('startAtInput').value || '').trim();
   let startAt = null;
   if (atRaw) {
-    const d = new Date(atRaw);
-    if (isNaN(d.getTime())) { await uiAlert('开始时间无效，请重新选择'); return; }
+    const d = parseLocalDT(atRaw);
+    if (!d) {
+      await uiAlert(`开始时间「${atRaw}」看不懂。\n\n能认的写法：2026-11-05 21:30、11-05 21:30、21:30（今天）。\n在 iPad 上建议直接点下面的「+10分」「今晚20:00」，不依赖系统时间选择器。`, '时间格式');
+      return;
+    }
     if (d.getTime() < Date.now() - 5000) { await uiAlert('开始时间已过，请重新选择'); return; }
-    startAt = atRaw;
+    startAt = fmtLocalDT(d);      // 统一成 YYYY-MM-DDTHH:mm 再发给后端
   }
 
   const n = openIds.size;
@@ -2594,7 +2825,7 @@ async function startOpen() {
     `将开：${n} 个活动${dryRun ? '（dry-run，不会真正创建）' : ''}`,
     `平均间隔：${fmtSpan(delay)}${jitter ? `（±${jitter} 秒随机）` : ''}`,
     `预计耗时：约 ${fmtSpan(n * delay)}`,
-    `开始时间：${startAt ? new Date(startAt).toLocaleString('zh-CN') : '立即'}`,
+    `开始时间：${startAt ? fmtCN(parseLocalDT(startAt)) : '立即'}`,
   ];
   if (openSkipped > 0) {
     lines.push(`已跳过：${skipReasonText(openSkipDetail)}`);

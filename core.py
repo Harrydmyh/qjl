@@ -1,6 +1,7 @@
 """群接龙业务逻辑核心"""
 
 import base64
+import difflib
 import json
 import os
 import random
@@ -306,6 +307,75 @@ def _names_same(a_names, b_names):
     return ma / min(len(a_names), len(b_names)) >= _NAME_OVERLAP_MIN
 
 
+# ── 同款判据补充（2026-11-05 用户指定）──
+# 用户口径：标题文字 90% 以上相同 / 内部图片 5 张以上一样 / 引用的商品库是同一个母团，
+# 三条命中任一即视为同一款，只留订单最多的那条。
+_TITLE_SIM = 0.9          # 归一化标题的相似度阈值
+_TITLE_GRAM = 8           # 预筛用的 k-gram 长度（90% 相似的标题必然共享 8-gram）
+_TITLE_LEN_TOL = 0.12     # 长度差超过 12% 直接排除（92% 相似的两串长度不可能差更多）
+_PIC_SHARE_MIN = 5        # 图片交集 ≥5 张判同款
+_GRAM_GROUP_MAX = 400     # 同一个 8-gram 命中超过这么多条就放弃该 gram（防退化、防 O(n²)）
+
+
+def _item_title(item):
+    """活动标题（归一化）：只留中英文数字，emoji / 标点 / 空格全部去掉。"""
+    return _norm_name(item.get("actName") or item.get("activityName") or "")
+
+
+def _item_pics(item):
+    """一条活动的全部图片：活动主图 + 每个规格的商品图（已归一化路径）。
+
+    实测同一款货被不同团长上架时，goodsPicList 里的文件路径是**完全一致**的
+    （上游商品库同一份图），所以按路径比就能认出「内部图片一样」。
+    """
+    out = set()
+    p = item.get("actPic")
+    if p:
+        out.add(p.strip().lstrip("/"))
+    for g in (item.get("basicFeedGoodDTOList") or []):
+        for pic in (g.get("goodsPicList") or []):
+            if pic:
+                out.add(pic.strip().lstrip("/"))
+    return out
+
+
+def _similar_title_pairs(titles, k=_TITLE_GRAM):
+    """预筛「标题可能 ≥90% 相似」的下标对：共享一个 k-gram 才可能需要细比。
+
+    直接两两跑 SequenceMatcher 在几千条上是千万级比较，会卡死。
+    90% 相似意味着几乎逐字相同，必然共享大量 k-gram，所以倒排索引不会漏。
+    """
+    idx = defaultdict(set)
+    for i, t in enumerate(titles):
+        if len(t) < k:
+            continue
+        for g in {t[p:p + k] for p in range(len(t) - k + 1)}:
+            idx[g].add(i)
+    pairs = set()
+    for lst in idx.values():
+        if len(lst) < 2 or len(lst) > _GRAM_GROUP_MAX:
+            continue
+        u = sorted(lst)
+        for a in range(len(u)):
+            for b in range(a + 1, len(u)):
+                pairs.add((u[a], u[b]))
+    return pairs
+
+
+def _titles_same(a, b):
+    """两个**已归一化**的标题是否 ≥90% 相同"""
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if abs(len(a) - len(b)) > _TITLE_LEN_TOL * max(len(a), len(b)):
+        return False
+    sm = difflib.SequenceMatcher(None, a, b)
+    if sm.real_quick_ratio() < _TITLE_SIM or sm.quick_ratio() < _TITLE_SIM:
+        return False
+    return sm.ratio() >= _TITLE_SIM
+
+
 def _goods_groups(items):
     """把 items 按「同款」分组。三条判据，命中任一即同组：
 
@@ -393,6 +463,50 @@ def _goods_groups(items):
                 if _dice(grams[a], grams[b]) >= _MULTI_SKU_SIM:
                     union(a, b)
 
+    # ── ④ 标题 ≥90% 相同 ──
+    # 同一款货被不同团长上架时，标题常常只改了几个 emoji / 前后缀，
+    # 商品名却可能被改写过（名称判据抓不到）。归一化后逐字比，≥90% 就并。
+    titles = [_item_title(it) for it in items]
+    for i, j in _similar_title_pairs(titles):
+        if find(i) != find(j) and _titles_same(titles[i], titles[j]):
+            union(i, j)
+
+    # ── ⑤ 图片 ≥5 张一样 ──
+    # 上游商品库的图片路径在不同活动里是同一份文件，交集 ≥5 张基本就是同一款。
+    pics_of = [_item_pics(it) for it in items]
+    by_pic = defaultdict(list)
+    for i, ps in enumerate(pics_of):
+        for p in ps:
+            by_pic[p].append(i)
+    for i, ps in enumerate(pics_of):
+        hit = defaultdict(int)
+        for p in ps:
+            for j in by_pic[p]:
+                if j > i:
+                    hit[j] += 1
+        for j, n in hit.items():
+            if n >= _PIC_SHARE_MIN and find(i) != find(j):
+                union(i, j)
+
+    # ── ⑥ 同一个母团（引用的商品库相同）──
+    # startActId = 这个帮卖团挂靠的原活动；同一个原活动下的一堆子团就是同一款。
+    by_root = {}
+    for i, it in enumerate(items):
+        root = it.get("startActId") or 0
+        if not root:
+            continue
+        if root in by_root:
+            union(i, by_root[root])
+        else:
+            by_root[root] = i
+    # 一条活动的 actId 正好是另一条的 startActId，也是同母团
+    id_index = {it.get("actId"): i for i, it in enumerate(items)}
+    for i, it in enumerate(items):
+        root = it.get("startActId") or 0
+        j = id_index.get(root)
+        if j is not None and j != i:
+            union(i, j)
+
     groups = defaultdict(list)
     for i, item in enumerate(items):
         groups[find(i)].append(item)
@@ -407,6 +521,45 @@ def _item_best(group):
 def dedup_by_goods(items):
     """同款去重：每组只留 `_item_sort_key` 最大的那条"""
     return [_item_best(g) for g in _goods_groups(items)]
+
+
+# ── 品类（2026-11-05 起：只用模型判，不再维护关键词表）──
+# 「能不能入口吃 / 是不是保健品」交给 `classify_llm.py`（DeepSeek），在 `_finish_fetch`
+# 末尾用 `_apply_llm_kind()` 统一覆盖。原因：关键词表永远补不完 ——
+#   漏过「木薯 / 肥肠 / 黄花鱼肉丸 / 娘惹菜」，
+#   误伤「食品级保鲜袋 / 锡纸盘」「兰芝唇膜（标题写了芒果西瓜软糖）」「牛奶丝面料」。
+# 这里只留「低值」——价格是算术，不需要模型。
+_LOW_VALUE_MAX = 10.0
+
+
+def _main_goods_name(goods_list):
+    """主商品名 = 价格最高的那个规格。
+
+    为什么挑最高价：活动里常挂 0.01 换购件 / 加赠小样，标题又满是营销词。
+    AI 品类判定只认主商品，避免「买和牛送烧肉汁」被判成食品、
+    「0.1 元加赠袜子」被判成低值日用。
+    """
+    best, best_p = "", -1.0
+    for g in (goods_list or []):
+        nm = g.get("goodsName") or ""
+        if not nm:
+            continue
+        p = _to_num(g.get("groupBuyPrice"))
+        if p > best_p:
+            best, best_p = nm, p
+    return best[:80]
+
+
+def _classify_kind(item):
+    """只算「低值」（整团所有规格最高价 ≤10 元）。
+
+    isFood / isHealth 一律先给 False，等模型判定后由 `_apply_llm_kind()` 写回；
+    模型不可用时保持 False = 不筛，宁可放过也不乱筛。
+    """
+    prices = [_to_num(g.get("groupBuyPrice")) for g in (item.get("basicFeedGoodDTOList") or [])]
+    prices = [p for p in prices if p > 0]
+    return {"isFood": False, "isHealth": False,
+            "isLowValue": bool(prices) and max(prices) <= _LOW_VALUE_MAX}
 
 
 def parse_item(item):
@@ -438,6 +591,8 @@ def parse_item(item):
         "totalOrders": stats.get("totalOrderNum", 0),
         "helpSaleCount": item.get("helpSaleCount", 0),
         "goodsName": (first_goods.get("goodsName", "") or "")[:50],
+        # 主商品（最高价规格）——AI 品类判定按它来
+        "mainGoodsName": _main_goods_name(goods_list),
         "goodsIds": sorted({
             g["goodsId"] for g in goods_list if g.get("goodsId")
         }),
@@ -459,10 +614,51 @@ def parse_item(item):
         # 前端据此把这类行**默认不勾选**，避免同一款被反复开。
         "alreadyFollowed": bool(item.get("isFollow")),
         "actPic": item.get("actPic", ""),
+        # 母团（这个帮卖团挂靠的原活动）。0 = 自己就是根活动。
+        # 前端/去重都靠它认「引用的商品库是同一个」。
+        "startActId": item.get("startActId") or 0,
+        # 品类标记：食品生鲜 / 保健品 / 低值（9.9 及以下）。汤团² 不要这几类。
+        **_classify_kind(item),
         "startTime": start_ts,
         "startTimeStr": datetime.fromtimestamp(start_ts / 1000).strftime("%m-%d") if start_ts else "",
         "upStreamType": item.get("upStreamType", 0),
     }
+
+
+def _apply_llm_kind(items, progress=None):
+    """用 DeepSeek 覆盖关键词判出来的 isFood / isHealth。
+
+    为什么覆盖而不是并存：关键词表永远补不完（漏过木薯、肥肠、黄花鱼肉丸；
+    误判过食品级保鲜袋、兰芝唇膜套装），LLM 看名字就能分清，也不用一直维护词库。
+    任何失败（没配 key / 网络挂 / 返回乱码）都**静默回退**到关键词结果，不影响开团。
+
+    progress: 可选回调 (done, total)，用于把「AI 判品类」的进度推给前端。
+    返回 (被改判的条数, 模型是否真的判成功了)。
+    """
+    try:
+        import classify_llm
+    except Exception:
+        return 0, False
+    names = [it.get("mainGoodsName") or it.get("goodsName") or "" for it in items]
+    uniq = [n for n in dict.fromkeys(names) if n]
+    if not uniq:
+        return 0, False
+    try:
+        mp = classify_llm.classify_names(uniq, progress=progress)
+    except Exception:
+        return 0, False
+    if not mp:
+        return 0, False
+    changed = 0
+    for it, nm in zip(items, names):
+        v = mp.get(nm)
+        if not v:
+            continue
+        nf, nh = bool(v.get("food")), bool(v.get("health"))
+        if nf != bool(it.get("isFood")) or nh != bool(it.get("isHealth")):
+            changed += 1
+        it["isFood"], it["isHealth"] = nf, nh
+    return changed, True
 
 
 def _fetch_one_page(session, headers, gh_id, page, category_ids, upstream_types,
@@ -864,6 +1060,19 @@ def _finish_fetch(q, all_items, log_entries=None, include_followed=True):
     total_available = len(new_items) + len(followed_items) + len(reopen_items)
     deduped = raw_tagged - total_available
     all_out = new_items + followed_items + reopen_items
+    # 品类判定升级成 AI（关键词只作兜底）。放在最后一步：只对最终要展示的这几百条问一次，
+    # 且按商品名去重 + 落盘缓存，重复拉取不再花钱。
+    llm_changed, llm_ok = 0, False
+    try:
+        llm_changed, llm_ok = _apply_llm_kind(
+            all_out,
+            progress=lambda a, b: q.put({"type": "progress", "page": "AI 判品类",
+                                         "added": a, "total": b}))
+    except Exception:
+        llm_changed, llm_ok = 0, False
+    if not llm_ok:
+        q.put({"type": "error",
+               "msg": "AI 判品类没跑成功（没配 key / 网络不通），本次不做品类过滤"})
     cooldown_count = sum(1 for a in all_out if a.get("recentlyOpened"))
     assert len(all_items) - dropped == raw_tagged
     assert total_available == raw_tagged - deduped
@@ -880,6 +1089,8 @@ def _finish_fetch(q, all_items, log_entries=None, include_followed=True):
         "reopen_count": len(reopen_items),
         "followed_count": len(followed_items),
         "cooldown_count": cooldown_count,
+        "llm_kind_changed": llm_changed,
+        "llm_kind_ok": llm_ok,
         "cooldown_days": REOPEN_COOLDOWN_DAYS,
         "total_available": total_available,
         "items": all_out,

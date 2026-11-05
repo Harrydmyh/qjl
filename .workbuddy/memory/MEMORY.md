@@ -39,6 +39,12 @@
 - 列表 POST /after-sales-biz/as_order_search/v2/search。ghViewType 10=别人向我发起（要这个）/20=我向上游，互斥；asStatusList=[10,20] 待处理，[] 会拉到 2024 年归档；searchContent 只认手机号/订单号，售后单号用 asOrderNo。
 - 「复制信息」无后端（handleCopyOrderData 零请求）；asContent 大量为空必须容错；价格单位分。
 
+## 合集（act_collection，2026-11-05 实盘）
+- 新建 `act_collection_create`（**body 带 actCollectionId 也照样新建**）；原地改只能 `act_collection_modify`（保住已分享链接）；`actIdList: []` 被忽略，无删除接口。
+- 上限 200 条；选团列表复用 query_ghome_feed_back_v2（无限流，按 createTime 边界停，置顶+时间倒序）。
+- per-act「近 7 天有单」无接口；`get_last_order_by_act_id?actId=`（query 参数）只给累计第 N 单。
+- 详见 2026-11-05.md；脚本 fetch_feed_7d.py + collection_fill.py。
+
 ## 抓包反推
 .chlz=zip（meta/req/res 三个 json、body 已明文）→ 用用户级 skill reverse-engineer-app-capture。
 

@@ -291,7 +291,9 @@ async def index():
 async def get_config():
     cfg = load_config()
     info = core.token_info(cfg)
-    return {"config": {k: v for k, v in cfg.items() if k not in ("auth_token", "access_key")},
+    # ⚠️ 密钥类字段一个都不能下发给前端（页面可能挂在 Vercel 等公网静态托管上）
+    _SECRET_KEYS = ("auth_token", "access_key", "deepseek_api_key")
+    return {"config": {k: v for k, v in cfg.items() if k not in _SECRET_KEYS},
             "token_preview": cfg.get("auth_token", "")[:20] + "..." if cfg.get("auth_token") else "",
             "token_info": info,
             "access_enabled": bool(cfg.get("access_key")),

@@ -1,5 +1,8 @@
 {
   "auth_token": "eyJhbGciOiJIUzUxMiJ9...",
   "gh_id": "PsXXXXXX_bsXXXXXX_xxxxxxxx",
-  "uid": "100000000"
+  "uid": "100000000",
+  "access_key": "（可选）公网访问密钥，本机不需要",
+  "deepseek_api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+  "deepseek_model": "deepseek-chat"
 }
