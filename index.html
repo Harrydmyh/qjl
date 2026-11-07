@@ -93,6 +93,13 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-s
 .btn-primary{background:var(--accent);color:#fff}
 .btn-primary:hover{opacity:.88}
 .btn-primary:disabled{opacity:.35;cursor:not-allowed}
+/* 「筛选改了、还没刷新」：刷新按钮转黄，提醒点它才重新拉取（不再自动拉） */
+.btn.btn-dirty{background:var(--yellow);color:#fff;box-shadow:0 0 0 3px var(--yellow-bg)}
+.btn.btn-dirty:hover{opacity:.88}
+.dirty-hint{font-size:11px;color:var(--yellow);white-space:nowrap}
+/* 开团清单行尾的「移除这一条」 */
+.row-x{margin-left:5px;border:none;background:transparent;color:var(--text3);cursor:pointer;font-size:11px;line-height:1;padding:2px 4px;border-radius:4px}
+.row-x:hover{background:var(--red-bg);color:var(--red)}
 .btn-ghost{background:transparent;color:var(--text2);border:1px solid var(--border2)}
 .btn-ghost:hover{color:var(--text);border-color:var(--text3)}
 .btn-danger{background:transparent;color:var(--red);border:1px solid transparent}
@@ -722,6 +729,11 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
 .pulse {
   animation: pulseGlow 0.6s ease-in-out 2;
 }
+
+/* 手机窄屏：待刷新提示压成小字两行，别把刷新按钮挤出屏幕 */
+@media (max-width: 768px) {
+  .dirty-hint { max-width: 116px; white-space: normal; font-size: 10px; line-height: 1.25; }
+}
 </style>
 </head>
 <body>
@@ -941,7 +953,7 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
                title="未开启跟团功能（followEarning 为空），开团必定失败">不可开团</div>
         </div>
 
-        <input id="searchInput" type="text" placeholder="搜索活动/商品/供应商..."
+        <input id="searchInput" type="text" placeholder="关键字，空格分隔（棉服 羽绒服）"
           style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:5px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;width:180px;outline:none"
           oninput="onSearch(this.value)"
           onfocus="this.style.borderColor='var(--accent)'"
@@ -950,6 +962,7 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
           <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v5l3-3M8 7l-3-3"/><path d="M3 10v2.5A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V10"/></svg>
           刷新列表
         </button>
+        <span class="dirty-hint" id="fetchDirtyHint" style="display:none"></span>
 
         <div class="toolbar-right">
           <span class="stat-text" id="actStat"></span>
@@ -1026,15 +1039,33 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
           <div class="filter-chip" id="ocf-old5" onclick="setOpenCatFilter('old5')"
                title="我自己开过、开团时间已超过 5 天的活动（5 天冷却已过，可复开）">开团&gt;5天</div>
         </div>
-        <input id="openSearchInput" type="text" placeholder="搜索..."
-          style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);padding:5px 10px;border-radius:var(--radius);font-size:13px;font-family:inherit;width:160px;outline:none"
-          oninput="onOpenSearch(this.value)"
-          onfocus="this.style.borderColor='var(--accent)'"
-          onblur="this.style.borderColor='var(--border2)'">
+        <div class="filter-chip" id="openKwChip" style="cursor:text;gap:6px"
+             title="按关键字筛这一屏。多个关键字用空格/逗号分隔，**任一命中**即保留（例：棉服 羽绒服）。">
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5L14 14"/></svg>
+          <input id="openSearchInput" class="inline-text" type="text"
+            placeholder="关键字，空格分隔（棉服 羽绒服）"
+            style="width:180px"
+            oninput="onOpenSearch(this.value)">
+          <span id="openKwClear" onclick="clearOpenKeyword(event)" title="清空">✕</span>
+        </div>
+        <label class="filter-chip" style="cursor:pointer;gap:6px"
+               title="默认不勾：每次换关键字/筛选，都按【当前筛出来的】重新预勾 —— 搜「棉服 羽绒服」就直接是这 20 条待开。
+勾上：已勾的清单保留，换词再筛、再点「全选本屏」就是追加（增量凑一批）。">
+          <input type="checkbox" id="openKeepSel" onchange="onOpenKeepSelChange(this)" onclick="event.stopPropagation()">
+          保留已选
+        </label>
+        <button class="btn btn-ghost" id="openDropBtn" onclick="openDropUnchecked()"
+                title="把没勾上的从清单里移掉：先取消勾选、再点这里，清单就只剩要开的">移除未勾选</button>
+        <button class="btn btn-ghost" id="openResetBtn" onclick="openResetSel()"
+                title="全量刷新：丢掉累计清单，按活动页当前的筛选结果重新装一批（不清空的话就是多次筛选往下拼接）">全量刷新</button>
         <span class="stat-text" id="openStat">从活动列表选择或全选后开团</span>
         <div class="toolbar-right">
           <button class="btn btn-ghost" id="openSelAllBtn" onclick="openSelectAll()">全选</button>
-          <button class="btn btn-ghost" onclick="openClearSel()">清除</button>
+          <button class="btn btn-ghost" onclick="openClearSel()" title="只取消勾选（清单还在），想彻底删掉点「移除已选」">取消勾选</button>
+          <button class="btn btn-ghost" id="openRemoveCheckedBtn" onclick="openRemoveChecked()"
+                  title="把当前勾选的这几条从清单里删掉；清单里没勾的、其他批次的都不动">移除已选</button>
+          <button class="btn btn-primary" id="openConfirmBtn" onclick="openConfirmRun()"
+                  title="筛完就点这里：锁定当前勾选的这批，确认后立刻开始开团（效果和右下角「开始开团」一样，只是不用滚下去）。">确定并开团 (0)</button>
         </div>
       </div>
       <!-- 手机端专用「选择条」：开团面板表头同样被隐藏，全选入口放这里 -->
@@ -1044,7 +1075,8 @@ input[type=datetime-local].side-input{text-align:left;font-size:12px;padding:5px
           <span>全选可开</span>
         </label>
         <span class="lb-count" id="mOpenCount">未选</span>
-        <button class="btn btn-ghost" onclick="openClearSel()">清除</button>
+        <button class="btn btn-ghost" onclick="openClearSel()">取消勾选</button>
+        <button class="btn btn-ghost" onclick="openRemoveChecked()">移除已选</button>
       </div>
       <div class="open-wrap">
         <div class="open-table">
@@ -1217,7 +1249,10 @@ let openIds = new Set();       // selected in open tab
 let openSkipped = 0;           // 因"不可开团 / 同款5天内已开"被跳过的条数（置灰不可勾选）
 let openSkipDetail = { noFollow: 0, cooldown: 0, total: 0 };
 let openFollowedCount = 0;     // 「已跟过」但可开、只是默认没勾选的条数
-let openFilterText = '';
+let openFilterText = '';       // 开团面板关键字（原样存，用时再拆词）
+let openKeepSel = false;       // false=换筛选按当前结果重勾（旧行为）；true=保留已勾清单做增量
+let openAutoFilled = false;    // 是否已经做过一次「默认预勾」——只做一次，之后靠用户手动增删
+let openVisibleIds = new Set();// 当前这一屏的 actId，用来算「已选里有多少在屏内」
 let openCatFilter = 'all';
 let categories = {};
 let selectedCats = new Set();  // populated after config loads
@@ -1228,6 +1263,25 @@ let selectedGh = new Set();    // 选中的供应商名
 let ghFilterText = '';         // 供应商下拉里的搜索词
 let sortCol = 'startTime';
 let sortDir = -1;  // -1 = desc, 1 = asc
+
+// ── 开团清单（跨多次筛选累积）──
+// 关键点：存的是**活动快照**，不是 actId。因为重新拉取会整体替换 activities，
+// 只存 id 的话，之前挑好的老活动就"找不到"了。Map 保持插入顺序 → 新加的排在下面。
+let openBasket = new Map();    // actId -> activity snapshot
+let openLastAdded = 0;         // 上一次加入新增了几条（给开团页显示「本次新增」）
+let openAddNote = '';          // 加入时的补充说明（比如「这批已经在清单里了」）
+const BASKET_KEY = 'qjl_open_basket';
+(function loadOpenBasket() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BASKET_KEY) || '[]');
+    if (Array.isArray(raw)) raw.forEach(a => {
+      if (a && a.actId) openBasket.set(Number(a.actId), a);
+    });
+  } catch (e) { /* 存储坏了就当空清单，不影响主流程 */ }
+})();
+function saveOpenBasket() {
+  try { localStorage.setItem(BASKET_KEY, JSON.stringify([...openBasket.values()])); } catch (e) {}
+}
 let filterText = '';
 let catFilter = 'all';  // 'all' | 'new' | 'reopen'
 let openableFilter = 'all';  // 'all' | 'yes' | 'no' —— 是否可一键开团
@@ -1346,10 +1400,11 @@ async function init() {
       // 日历面板只有「点到外面」才收；拉取/选日期都不该把它弹掉（用户要继续点日子）
       if (!e.target.closest('.filter-wrap')) { closeAllDd(); closeCal(); }
     });
-    // Days change → auto re-fetch（仅"最近 N 天"模式下生效）
-    document.getElementById('daysInput').addEventListener('change', () => {
-      if (rangeMode === 'days') startFetch();
-    });
+    // 拉取参数一律**不自动拉**：改完只标脏（刷新按钮转黄 + 提示行），点按钮才真正请求
+    const daysEl = document.getElementById('daysInput');
+    ['input', 'change'].forEach(ev => daysEl.addEventListener(ev, () => {
+      if (rangeMode === 'days') markFetchDirty(`拉取范围改成最近 ${daysEl.value || '?'} 天`);
+    }));
     applyRangeMode(false);   // 初始化拉取范围 UI（不触发请求）
     // 间隔/浮动变化 → 重算预计耗时
     ['delayInput', 'jitterInput'].forEach(id =>
@@ -1381,6 +1436,13 @@ async function init() {
   } else {
     buildGhOptions();
     document.getElementById('actEmpty').style.display = 'block';
+  }
+
+  // 页面刷新后清单还在（localStorage），但勾选状态没存 —— 按默认口径补勾一次
+  if (openBasket.size && !openIds.size) {
+    openBasket.forEach(a => { if (isDefaultOpenPick(a)) openIds.add(Number(a.actId)); });
+    openAutoFilled = true;
+    renderOpenTab();
   }
 
   loadLog().catch(() => {});
@@ -1492,7 +1554,8 @@ function onUpChange(id, cb) {
   // 先本地重建：供应商列表 + 表格立刻跟着变（不等服务端那 10 多秒）
   buildGhOptions();
   renderActivities();
-  startFetch();
+  // 供应类型是**服务端**拉取参数，本地只是预览；真正生效要点「刷新列表」
+  markFetchDirty(`供应类型改了（${[...selectedUp].map(u => u === 2 ? '团长自营团' : '品牌供货').join('、') || '全不选'}）`);
 }
 
 // ── 拉取范围：最近 N 天 / 每周某天往前 N 次（复团用） ──
@@ -1558,12 +1621,14 @@ function applyRangeMode(doFetch) {
   if (rangeMode === 'weekday') { sortCol = 'totalOrders'; sortDir = -1; }
   updateRangeHint();
   updateCalLabel();
-  // 日历模式不自动拉取：选好日期后点「拉取所选」才拉（用户明确要求）
+  // 自动拉取已关闭：切模式只改 UI，要不要拉由用户点「刷新列表」决定
   if (doFetch && rangeMode !== 'calendar') startFetch();
 }
 function onRangeModeChange() {
   rangeMode = document.getElementById('rangeMode').value;
-  applyRangeMode(true);
+  const label = { days: '最近 N 天', weekday: '每周某天', calendar: '日历自选' }[rangeMode] || rangeMode;
+  markFetchDirty(`拉取方式改成「${label}」`);
+  applyRangeMode(false);   // 只切 UI，不拉取（日历模式里会顺手帮选最近7天，提示更具体）
 }
 
 // ── 日历自选（点格子=加/减一天；只有点「拉取所选」才真正拉，选日期/翻月/关面板都不拉）──
@@ -1627,6 +1692,7 @@ function calToggle(ymd) {
   }
   calRender();
   updateRangeHint();
+  markFetchDirty(`日历已选 ${calSel.size} 天`);
 }
 function calStep(k) {
   calCursor.setMonth(calCursor.getMonth() + k);
@@ -1642,11 +1708,13 @@ function calQuick(n) {
   }
   calRender();
   updateRangeHint();
+  markFetchDirty(`日历已选 ${calSel.size} 天`);
 }
 function calClear() {
   calSel.clear();
   calRender();
   updateRangeHint();
+  markFetchDirty('日历已清空');
 }
 function calSubmit() { startFetch(); }
 function updateCalLabel() {
@@ -1667,7 +1735,7 @@ function flashCalCount() {
 function onIncludeFollowedChange() {
   includeFollowed = document.getElementById('includeFollowed').checked;
   if (!includeFollowed && catFilter === 'followed') catFilter = 'all';
-  startFetch();
+  markFetchDirty(includeFollowed ? '勾上「含已跟过」' : '取消「含已跟过」');
 }
 
 // ── 定向供应商（服务端 keyword 搜索）──
@@ -1691,10 +1759,11 @@ function clearGhKeyword(ev) {
 }
 function onRangeChange() {
   updateRangeHint();
-  startFetch();
+  markFetchDirty('拉取范围（星期/次数）已改');
 }
 // 复团预设：只拉可开团的品牌供货活动 + 带上已跟过的（复团候选）+ 按单量降序
-async function applyReopenPreset() {
+// 只改条件，不自动拉 —— 用户点「刷新列表」才生效（自动拉会把勾选冲掉）
+function applyReopenPreset() {
   selectedUp = new Set([3]);
   document.querySelectorAll('[data-up]').forEach(c => {
     c.checked = Number(c.dataset.up) === 3;
@@ -1705,7 +1774,8 @@ async function applyReopenPreset() {
   if (inc) inc.checked = true;
   setOpenableFilter('yes');
   sortCol = 'totalOrders'; sortDir = -1;
-  await startFetch();
+  renderActivities();
+  markFetchDirty('复团预设已套用（品牌供货 + 含已跟过）');
 }
 
 // ── Supplier (ghName) filter ──
@@ -1852,11 +1922,53 @@ function clearGhFilter() {
   updateGhChip();
 }
 
+// ── 手动刷新 ──
+// 用户要求：改筛选（日期 / 天数 / 拉取方式 / 供应类型 / 含已跟过…）**都不要自动重拉**。
+// 自动重拉会把正在勾的清单、刚看到的列表冲掉。所以改动只「标脏」：
+// 刷新按钮转黄 + 旁边一行提示写清改了什么，点「刷新列表」才真正请求。
+let fetchDirty = false;
+let fetchDirtyAtStart = false;
+// 按钮图标：原来一点刷新就被 textContent 抹掉，现在跟着文案一起重设
+const FETCH_ICON = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 2v5l3-3M8 7l-3-3"/><path d="M3 10v2.5A1.5 1.5 0 004.5 14h7a1.5 1.5 0 001.5-1.5V10"/></svg>';
+
+function markFetchDirty(why) {
+  fetchDirty = true;
+  const hint = document.getElementById('fetchDirtyHint');
+  if (hint) {
+    hint.textContent = `${why || '筛选条件已改'} · 点「刷新列表」生效`;
+    hint.style.display = '';
+  }
+  const btn = document.getElementById('fetchBtn');
+  if (btn && !btn.disabled) {
+    btn.classList.add('btn-dirty');
+    btn.innerHTML = FETCH_ICON + '刷新列表';
+  }
+}
+
+function clearFetchDirty() {
+  fetchDirty = false;
+  const btn = document.getElementById('fetchBtn');
+  const hint = document.getElementById('fetchDirtyHint');
+  if (btn) btn.classList.remove('btn-dirty');
+  if (hint) hint.style.display = 'none';
+}
+
+// 拉取结束后恢复按钮：还有没刷新的改动就保持黄色
+function resetFetchBtn() {
+  const btn = document.getElementById('fetchBtn');
+  if (!btn) return;
+  btn.disabled = false;
+  btn.innerHTML = FETCH_ICON + '刷新列表';
+  btn.classList.toggle('btn-dirty', fetchDirty);
+}
+
 // ── Fetch ──
 async function startFetch() {
   closeAllDd();
   const btn = document.getElementById('fetchBtn');
   btn.disabled = true; btn.textContent = '拉取中…';
+  btn.classList.remove('btn-dirty');
+  fetchDirtyAtStart = fetchDirty;   // 拉取途中用户又改筛选的话，结束时不清掉提醒
 
   const prog = document.getElementById('fetchProgress');
   const bar = document.getElementById('fetchBar');
@@ -1879,7 +1991,7 @@ async function startFetch() {
   if (rangeMode === 'calendar' && body.dates.length === 0) {
     addLine(log, '请先在日历上选至少一个日期', 'err');
     if (rangeMode === 'calendar') openCal();
-    btn.disabled = false; btn.textContent = '刷新列表'; return;
+    resetFetchBtn(); return;
   }
 
   let reader;
@@ -1890,12 +2002,12 @@ async function startFetch() {
     if (!resp.ok) {
       const err = await resp.json().catch(() => ({detail: resp.statusText}));
       addLine(log, '✗ ' + (err.detail || resp.statusText), 'err');
-      btn.disabled = false; btn.textContent = '刷新列表'; return;
+      resetFetchBtn(); return;
     }
     reader = resp.body.getReader();
   } catch(e) {
     addLine(log, '连接失败: '+e, 'err');
-    btn.disabled = false; btn.textContent = '刷新列表'; return;
+    resetFetchBtn(); return;
   }
 
   const dec = new TextDecoder(); let buf = '';
@@ -1909,7 +2021,7 @@ async function startFetch() {
       try { onFetchEvent(JSON.parse(p.slice(6)), log, bar, status); } catch {}
     }
   }
-  btn.disabled = false; btn.textContent = '刷新列表';
+  resetFetchBtn();
 }
 
 function onFetchEvent(ev, log, bar, status) {
@@ -1924,6 +2036,8 @@ function onFetchEvent(ev, log, bar, status) {
     addLine(log, '✗ ' + ev.msg, 'err');
   } else if (ev.type === 'done') {
     bar.style.width = '100%'; bar.classList.add('done');
+    // 拉完了：这一轮没有新的改动才收掉黄色提醒（拉取途中又改筛选的，提醒留着）
+    if (fetchDirty === fetchDirtyAtStart) clearFetchDirty();
     const parts = [`新 ${ev.new_count}`];
     if (ev.followed_count) parts.push(`已跟过 ${ev.followed_count}`);
     if (ev.reopen_count) parts.push(`复开 ${ev.reopen_count}`);
@@ -1982,8 +2096,22 @@ function setSort(col) {
   else { sortCol = col; sortDir = -1; }
   renderActivities();
 }
+// ── 关键字筛选：空格/逗号分隔，**任一命中**即保留 ──
+// 为什么是「或」不是「与」：用户搜的是同义词（棉服 羽绒服、马甲 背心），
+// 用「与」会一条都搜不到。想更精确就把词写全（如「男士 羽绒服」两个词还是或关系，
+// 真要交集请配合供应商/品类筛）。
+function splitKeywords(raw) {
+  return String(raw || '').toLowerCase().split(/[\s,，、;；|]+/).filter(Boolean);
+}
+function matchKeywords(a, kws) {
+  if (!kws || !kws.length) return true;
+  const hay = ((a.actName || '') + ' ' + (a.goodsName || '') + ' ' +
+               (a.mainGoodsName || '') + ' ' + (a.ghName || '')).toLowerCase();
+  return kws.some(k => hay.includes(k));
+}
+
 function onSearch(val) {
-  filterText = val.toLowerCase();
+  filterText = val;          // 原样存，拆词在 matchKeywords 里做
   renderActivities();
 }
 // ── Filter state helpers（统一定义"筛选是否生效"，供列表与计数共用）──
@@ -2059,12 +2187,7 @@ function passFilters(a, ignoreCatChip) {
     if (!hit) return false;
   }
   // 搜索词
-  if (filterText) {
-    const ok = (a.actName||'').toLowerCase().includes(filterText) ||
-               (a.goodsName||'').toLowerCase().includes(filterText) ||
-               (a.ghName||'').toLowerCase().includes(filterText);
-    if (!ok) return false;
-  }
+  if (filterText && !matchKeywords(a, splitKeywords(filterText))) return false;
   return true;
 }
 // 复开活动已结束，平台不再提供跟团佣金（followEarning 恒为 0），
@@ -2288,7 +2411,7 @@ function renderActivities() {
         ? ` <span style="color:var(--yellow)" title="食品生鲜 ${kindCnt.food} / 保健品 ${kindCnt.health} / 低值 ${kindCnt.low}。按商品名+标题关键词判，不是平台类目；在「品类」菜单里取消勾选即可放开">· 品类已排除 ${kindTotal}（食${kindCnt.food}/保${kindCnt.health}/低${kindCnt.low}）</span>`
         : '')
     + (selDropped
-        ? ` <span style="color:var(--yellow)" title="这些活动已被当前筛选条件排除，不能再被开团">· 已取消 ${selDropped} 个筛外勾选</span>`
+        ? ` <span style="color:var(--yellow)" title="这些活动已被当前筛选条件排除，不能再被开团。已经「加入开团清单」的不受影响，清单里的条目还在">· 已取消 ${selDropped} 个筛外勾选（要留住就先点「加入开团清单」）</span>`
         : '');
 
   // 锁死的行（5 天内已开 / 品类排除）不允许留在勾选里 —— 否则「开 N 个」会算进它们
@@ -2430,17 +2553,117 @@ function updateSelUI() {
     toOpenBtn.style.display = 'none';
   } else {
     toOpenBtn.style.display = '';
-    toOpenBtn.textContent = `去开团 (${okN}个) →`;
-    toOpenBtn.title = hasAny
-      ? (scope.length > okN
-          ? `已勾选 ${scope.length} 个，其中 ${scope.length - okN} 个未开启跟团功能、会被跳过`
-          : `已勾选 ${scope.length} 个，全部可以开团`)
-      : `没有手动勾选 → 将开「当前筛选出的 ${vis.length} 个」`
-        + (vis.length > okN ? `，其中 ${vis.length - okN} 个未开启跟团功能、会被跳过` : '');
+    toOpenBtn.textContent = `加入开团清单 (${okN}个) →`;
+    toOpenBtn.title = (openBasket.size ? `已有清单 ${openBasket.size} 个，这批会追加到下面（同款自动去重）\n` : '')
+      + (hasAny
+        ? (scope.length > okN
+            ? `已勾选 ${scope.length} 个，其中 ${scope.length - okN} 个未开启跟团功能、会被跳过`
+            : `已勾选 ${scope.length} 个，全部可以开团`)
+        : `没有手动勾选 → 加入「当前筛选出的 ${vis.length} 个」`
+          + (vis.length > okN ? `，其中 ${vis.length - okN} 个未开启跟团功能、会被跳过` : ''));
   }
 }
 
+// ── 开团清单：追加 / 去重 / 全量刷新 ──
+// 只按 actId 去重还不够：不同供应商会挂同一款（goodsIds 有交集），
+// 之前拉取时 core 已经做过一轮合并，跨批次追加时这里再兜一次。
+function basketDupOf(a, skipId) {
+  const mine = new Set(a.goodsIds || []);
+  if (!mine.size) return null;
+  for (const b of openBasket.values()) {
+    if (Number(b.actId) === skipId) continue;
+    if ((b.goodsIds || []).some(g => mine.has(g))) return b;
+  }
+  return null;
+}
+
+// 追加进清单，返回新增条数。已存在的只刷新快照（订单数/冷却会变），不动顺序
+function addToOpenBasket(list) {
+  let added = 0;
+  list.forEach(a => {
+    if (!a || !a.actId) return;
+    const id = Number(a.actId);
+    const dup = basketDupOf(a, id);
+    if (dup) {
+      // 同款已在清单里：只在新的一条单量更大时替换，避免同一款开两次
+      if ((a.totalOrders || 0) > (dup.totalOrders || 0)) {
+        openBasket.delete(dup.actId);
+        openIds.delete(Number(dup.actId));
+        openBasket.set(id, a);
+        if (isDefaultOpenPick(a)) openIds.add(id);
+      }
+      return;
+    }
+    const existed = openBasket.has(id);
+    openBasket.set(id, a);
+    if (!existed) {
+      added++;
+      if (isDefaultOpenPick(a)) openIds.add(id);   // 新加入的默认勾上（已跟过的仍不勾）
+    }
+  });
+  if (added) openAutoFilled = true;   // 加过就不再整屏预勾
+  saveOpenBasket();                   // 快照刷新（订单数/冷却）也落盘
+  return added;
+}
+
+// 把没勾的从清单移掉：先取消勾选、再点「移除未勾选」，清单就只剩要开的
+function openDropUnchecked() {
+  const keep = new Set(openIds);
+  [...openBasket.keys()].forEach(id => { if (!keep.has(id)) openBasket.delete(id); });
+  openLastAdded = 0; openAddNote = '';
+  saveOpenBasket();
+  renderOpenTab();
+}
+
+// 行尾 ✕：只把这一条从清单去掉
+function openRemoveOne(actId) {
+  const id = Number(actId);
+  if (!openBasket.has(id)) return;
+  openBasket.delete(id);
+  openIds.delete(id);
+  openLastAdded = 0; openAddNote = '';
+  saveOpenBasket();
+  renderOpenTab();
+}
+
+// 「移除已选」：删掉当前勾选的，清单里没勾的原样留着
+async function openRemoveChecked() {
+  if (!openIds.size) {
+    await uiAlert('还没勾选任何活动。\n\n先勾上要撤掉的那几条再点这里；如果只是想取消勾选、清单还留着，点「取消勾选」。', '移除已选');
+    return;
+  }
+  const n = openIds.size;
+  if (!await uiConfirm(`把勾选的 ${n} 条从开团清单里删掉？\n\n清单里没勾的、之前几批加的都会留着。`, '移除已选')) return;
+  [...openIds].forEach(id => openBasket.delete(Number(id)));
+  openIds.clear();
+  openLastAdded = 0; openAddNote = '';
+  saveOpenBasket();
+  renderOpenTab();
+}
+
+// 全量刷新：丢掉累计清单，按活动页当前筛选结果重新装一批
+function openResetSel() {
+  openBasket.clear();
+  openIds = new Set();
+  const scope = selectedIds.size > 0
+    ? activities.filter(a => selectedIds.has(a.actId))
+    : getFiltered();
+  scope.forEach(a => { if (a && a.actId) openBasket.set(Number(a.actId), a); });
+  openBasket.forEach(a => { if (isDefaultOpenPick(a)) openIds.add(Number(a.actId)); });
+  openLastAdded = scope.length;
+  openAutoFilled = true;
+  saveOpenBasket();
+  renderOpenTab();
+}
+
+// 把当前挑好的并进清单，再跳到开团页。**不清空上一次的清单** —— 多次筛选累加
 function goToOpen() {
+  const scope = selectedIds.size > 0
+    ? activities.filter(a => selectedIds.has(a.actId))
+    : getFiltered();
+  openLastAdded = addToOpenBasket(scope);
+  openAddNote = openLastAdded ? ''
+    : (scope.length ? '这批已经在清单里了' : '');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('nav-open').classList.add('active');
@@ -2455,14 +2678,35 @@ function goToOpen() {
 
 // ── Open tab ──
 function syncOpenTab() {
-  // 拉取后活动集变了，清掉已不存在的勾选
-  const ids = new Set(activities.map(a => a.actId));
+  refreshBasketSnapshot();   // 清单里的老条目跟着最新数据走（订单数、5天冷却…）
+  // 拉取后活动集变了，清掉已不存在的勾选（清单里的老活动要留着，所以并上 basket）
+  const ids = new Set([...activities.map(a => a.actId), ...openBasket.keys()]);
   [...selectedIds].forEach(id => { if (!ids.has(id)) selectedIds.delete(id); });
+  // 新数据里已经开不了的（5 天内已开 / 品类被排除）也从勾选里拿掉，免得点了白跑
+  openIds = new Set([...openIds].filter(id => {
+    if (!ids.has(id)) return false;
+    const a = openBasket.get(Number(id)) || activities.find(x => x.actId === id);
+    return !(a && isCbLocked(a));
+  }));
+  openAutoFilled = false;      // 新一批数据，允许再预勾一次
   renderOpenTab();
 }
 
-// 开团候选范围：有手动勾选就用勾选的，否则继承活动列表当前的筛选结果
+// 用最新拉取的数据覆盖清单里的同 actId 条目（Map.set 对已有 key 不改顺序）
+function refreshBasketSnapshot() {
+  if (!activities.length || !openBasket.size) return;
+  const byId = new Map(activities.map(a => [Number(a.actId), a]));
+  let changed = false;
+  openBasket.forEach((old, id) => {
+    const fresh = byId.get(Number(id));
+    if (fresh && fresh !== old) { openBasket.set(Number(id), fresh); changed = true; }
+  });
+  if (changed) saveOpenBasket();
+}
+
+// 开团候选范围：优先用「累积清单」；清单空时才退回旧逻辑（勾选 / 当前筛选结果）
 function openBase() {
+  if (openBasket.size) return [...openBasket.values()];
   return selectedIds.size > 0
     ? activities.filter(a => selectedIds.has(a.actId))
     : getFiltered();
@@ -2478,9 +2722,13 @@ function renderOpenTab() {
 
   if (!base.length) {
     body.innerHTML = '';
-    openIds.clear();
+    if (!openKeepSel && !openBasket.size) openIds.clear();
     badge.textContent = '0';
-    emptyText.textContent = activities.length ? '没有符合当前筛选条件的活动' : '请先在活动列表拉取数据';
+    emptyText.textContent = openBasket.size
+      ? '清单里没有符合当前筛选条件的活动'
+      : (activities.length
+          ? '清单还是空的：回活动列表勾选，点「加入开团清单」。可以分几次筛、一批批往里加'
+          : '请先在活动列表拉取数据');
     empty.style.display = 'block';
     updateOpenStat(0, 0);
     return;
@@ -2494,16 +2742,24 @@ function renderOpenTab() {
       ? visible.filter(a => isOld5(a))
       : visible.filter(a => a.category === openCatFilter);
   }
-  if (openFilterText) {
-    const q = openFilterText.toLowerCase();
-    visible = visible.filter(a =>
-      (a.actName||'').toLowerCase().includes(q) ||
-      (a.goodsName||'').toLowerCase().includes(q) ||
-      (a.ghName||'').toLowerCase().includes(q)
-    );
+  const openKws = splitKeywords(openFilterText);
+  if (openKws.length) visible = visible.filter(a => matchKeywords(a, openKws));
+  // ── 勾选口径 ──
+  // openKeepSel=true（默认）：换关键字/换筛选**不清空**已勾清单，方便「筛一次、勾一批、
+  //   再换个词筛、再追加一批」；默认预勾只在第一次进面板时做一次。
+  // openKeepSel=false：沿用旧行为，每次筛选都按当前结果重新预勾。
+  const pickable = visible.filter(isDefaultOpenPick).map(a => a.actId);
+  const aliveAll = new Set([...activities.map(a => a.actId), ...openBasket.keys()]);
+  [...openIds].forEach(id => { if (!aliveAll.has(id)) openIds.delete(id); });  // 只清真的没了的
+  if (openBasket.size) {
+    // 累积清单模式：勾选权在用户手里（加入时预勾过一次），换筛选/重渲染都不动它
+  } else if (!openKeepSel) {
+    openIds = new Set(pickable);      // 旧行为：所见即所开
+  } else if (!openAutoFilled) {
+    pickable.forEach(id => openIds.add(id));
+    openAutoFilled = true;
   }
-  // 默认勾选「能开 且 不是已跟过」；已跟过的仍然可勾（手动），只是不预勾。
-  openIds = new Set(visible.filter(isDefaultOpenPick).map(a => a.actId));
+  openVisibleIds = new Set(visible.map(a => a.actId));
   openSkipped = visible.filter(isOpenBlocked).length;
   openSkipDetail = skipBreakdown(visible);
   openFollowedCount = visible.filter(a => !isOpenBlocked(a) && isAlreadyFollowed(a)).length;
@@ -2533,7 +2789,7 @@ function renderOpenTab() {
         <div class="name-sub" ${a.category==='reopen'?'title="复开活动已结束，平台不再提供跟团佣金；此处为供货佣金 earning"':''}>${commissionLabel(a)}</div>
       </td>
       <td class="num">${a.totalOrders||0}</td>
-      <td>${esc(a.ghName||'')}</td>
+      <td style="white-space:nowrap">${esc(a.ghName||'')}<button class="row-x" title="从清单移除这一条（不删活动本身，只是不参与这次开团）" onclick="openRemoveOne(${a.actId})">✕</button></td>
     </tr>`;
   }).join('');
   updateOpenStat(visible.length, base.length);
@@ -2549,10 +2805,23 @@ function setOpenCatFilter(val) {
   renderOpenTab();
 }
 function onOpenSearch(val) {
-  openFilterText = val.toLowerCase();
+  openFilterText = val;
   renderOpenTab();
 }
-
+function clearOpenKeyword(e) {
+  if (e) e.stopPropagation();
+  const el = document.getElementById('openSearchInput');
+  if (el) el.value = '';
+  openFilterText = '';
+  renderOpenTab();
+}
+function onOpenKeepSelChange(cb) {
+  openKeepSel = cb.checked;
+  // 切到「保留」时把「已预勾过」标记置上：之后再换关键字，只保留清单、不自动加整屏，
+  // 要追加就手动点「全选本屏」——避免一换词就把 800 条全勾上。
+  if (openKeepSel) openAutoFilled = true;
+  renderOpenTab();
+}
 function onOpenCb(cb) {
   const id = Number(cb.dataset.id);
   if (cb.checked) openIds.add(id); else openIds.delete(id);
@@ -2581,6 +2850,27 @@ function mOpenAllChange(cb) {
   if (cb.checked) openSelectAll();
   else openClearSel();
 }
+// 「确定并开团」：筛选完 → 点这里 → 锁定当前勾选 → 确认弹窗 → 开跑。
+// 解决两件事：① 筛完不用滚到右下角找按钮；② 先把勾选定下来，避免手一抖又改了筛选。
+async function openConfirmRun() {
+  if (document.getElementById('openBtn').disabled) {
+    await uiAlert('已经有开团任务在跑，先等它结束或取消。', '稍等');
+    return;
+  }
+  if (!openIds.size) {
+    await uiAlert(openSkipped > 0
+      ? `当前这 ${openSkipped} 个都不能开：${skipReasonText(openSkipDetail)}。`
+      : '还没勾选任何活动。\n\n在开团页勾选要开的行，或回活动列表筛选后点「加入开团清单」。',
+      '确定并开团');
+    return;
+  }
+  // 此刻的勾选就是最终清单（增量模式下已累积前几批）。
+  // ⚠️ 不要再 renderOpenTab()：「不保留」模式下它会按当前屏重勾，
+  // 把你刚手动取消的那几条又勾回来。
+  openAutoFilled = true;
+  await startOpen();
+}
+
 function openClearSel() {
   openIds.clear();
   document.querySelectorAll('.open-cb').forEach(el => el.checked = false);
@@ -2596,7 +2886,13 @@ function skipReasonText(d) {
   return parts.join(' · ');
 }
 function updateOpenStat(visibleCount, totalCount) {
-  document.getElementById('openStatBox').innerHTML = `已选 <strong>${openIds.size}</strong> 个活动`;
+  // 清单累计 = 多次筛选拼起来的条数；已选 = 这一轮真正要开的
+  const extra = [];
+  if (openBasket.size) extra.push(`清单累计 <strong>${openBasket.size}</strong>`);
+  if (openLastAdded) extra.push(`本次新增 <strong>${openLastAdded}</strong>`);
+  if (openAddNote) extra.push(`<span style="color:var(--text3)">${esc(openAddNote)}</span>`);
+  document.getElementById('openStatBox').innerHTML = `已选 <strong>${openIds.size}</strong> 个活动`
+    + (extra.length ? `<span style="color:var(--text3)"> · ${extra.join(' · ')}</span>` : '');
   // 同步手机端选择条（窄屏下表头被隐藏，那条是唯一的全选入口）
   const moa = document.getElementById('mOpenAll');
   if (moa) {
@@ -2608,7 +2904,39 @@ function updateOpenStat(visibleCount, totalCount) {
   }
   const moc = document.getElementById('mOpenCount');
   if (moc) moc.textContent = openIds.size ? `已选 ${openIds.size}` : '未选';
+  // 已选里有多少在当前这一屏 —— 增量筛选时最关键的一个数
+  const inView = openVisibleIds.size
+    ? [...openIds].filter(id => openVisibleIds.has(id)).length
+    : openIds.size;
   let s = `将开 <strong>${openIds.size}</strong> 个`;
+  if (openIds.size && inView < openIds.size) {
+    s += ` <span style="color:var(--text3)" title="你换过关键字/筛选，之前勾的还在（增量筛选）">（本屏 ${inView} 个）</span>`;
+  }
+  // 「移除已选 / 移除未勾选」都带数字，一眼看出会删几条
+  const rcBtn = document.getElementById('openRemoveCheckedBtn');
+  if (rcBtn) {
+    rcBtn.textContent = openIds.size ? `移除已选 (${openIds.size})` : '移除已选';
+    rcBtn.disabled = !openIds.size;
+  }
+  const dropBtn = document.getElementById('openDropBtn');
+  if (dropBtn) {
+    const kept = [...openBasket.keys()].filter(id => openIds.has(Number(id))).length;
+    const un = Math.max(0, openBasket.size - kept);
+    dropBtn.textContent = un ? `移除未勾选 (${un})` : '移除未勾选';
+    dropBtn.disabled = !un;
+  }
+  // 「确定并开团」跟着已选数走，禁用时也能看出是 0
+  const cfBtn = document.getElementById('openConfirmBtn');
+  if (cfBtn) {
+    cfBtn.textContent = `确定并开团 (${openIds.size})`;
+    cfBtn.style.opacity = openIds.size ? '' : '.55';
+  }
+  // 全选按钮只说「这屏」，避免以为清掉了别的
+  const saBtn = document.getElementById('openSelAllBtn');
+  if (saBtn) {
+    const enabledNow = [...document.querySelectorAll('.open-cb')].filter(c => !c.disabled).length;
+    saBtn.textContent = `全选本屏 (${enabledNow})`;
+  }
   if (openSkipped > 0) {
     s += ` <span style="color:var(--yellow)" title="这些行已置灰且不可勾选">· 已跳过 ${openSkipped} 个（${skipReasonText(openSkipDetail)}）</span>`;
   }
@@ -2930,6 +3258,16 @@ async function clearLog() {
 }
 
 init();
+
+// 链接直达某个面板：?panel=open / ?panel=activities / ?panel=history
+// 用途：从别处点一下就直接落在「开团筛选」页，不用再手动切侧栏。
+(function () {
+  const p = (new URLSearchParams(location.search).get('panel') || '').trim();
+  if (!p) return;
+  const nav = document.getElementById('nav-' + p);
+  const panel = document.getElementById('panel-' + p);
+  if (nav && panel) switchPanel(p, nav);
+})();
 </script>
 </body>
 </html>
