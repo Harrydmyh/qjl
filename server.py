@@ -19,7 +19,10 @@ from pydantic import BaseModel
 import core
 
 DATA_DIR = Path(__file__).parent / "data"
-DATA_DIR.mkdir(exist_ok=True)
+# 已存在就别调 mkdir：某些沙箱/包装环境（如 WorkBuddy 的 sitecustomize shim）
+# 会拦截 mkdir 且不认 exist_ok=True，直接抛 FileExistsError 把服务挡在启动前。
+if not DATA_DIR.is_dir():
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 CONFIG_FILE = DATA_DIR / "config.json"
 ACTIVITIES_FILE = DATA_DIR / "activities.json"

@@ -144,6 +144,24 @@ def _chunks(names):
         yield cur
 
 
+def _split_retry(session, chunk):
+    """整批格式出错（模型多写/少写一位）时，劈成两半各问一次；再错就留空。
+
+    **只劈一层、不递归**：递归最坏 16 次请求，为省几厘钱不值。
+    留空用 None 表示「没判出来」——调用方不会把它写进缓存，下次还会重判。
+    """
+    if len(chunk) <= 10:
+        return [None] * len(chunk)
+    half = len(chunk) // 2
+    codes = []
+    for part in (chunk[:half], chunk[half:]):
+        try:
+            codes.extend(_ask(session, part))
+        except Exception:
+            codes.extend([None] * len(part))
+    return codes
+
+
 def classify_names(names, progress=None):
     """批量判定。返回 {name: {"food":bool,"health":bool}}；没判出来的名字不在结果里。
 
@@ -167,22 +185,19 @@ def classify_names(names, progress=None):
             done = 0
             for chunk in _chunks([n for _, n in todo]):
                 keys = [norm_key(n) for n in chunk]
+                codes = None
                 try:
                     codes = _ask(s, chunk)
+                except ValueError:
+                    # 模型输出格式不对（位数少一位 / 不是 JSON）：劈半再试，最可能救回来
+                    codes = _split_retry(s, chunk)
                 except Exception:
-                    # 整批失败就劈半再来一次（常见于模型多写/少写一位）
-                    if len(chunk) > 10:
-                        half = len(chunk) // 2
-                        parts = [chunk[:half], chunk[half:]]
-                        codes = []
-                        for part in parts:
-                            try:
-                                codes.extend(_ask(s, part))
-                            except Exception:
-                                codes.extend([0] * len(part))
-                    else:
-                        codes = [0] * len(chunk)
-                for k, c in zip(keys, codes):
+                    # HTTP 401/402/429/超时：再问一遍也是同样的错，钱却照样扣。
+                    # 直接放弃这一批，**不写缓存**，下次拉取再试。
+                    codes = None
+                for k, c in zip(keys, codes or []):
+                    if c is None:
+                        continue          # 没判出来就不落盘：否则会被永久当成「都不是」
                     cache[k] = {"food": c in (1, 3), "health": c in (2, 3)}
                 done += len(chunk)
                 if progress:
