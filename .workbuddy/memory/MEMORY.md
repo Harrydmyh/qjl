@@ -28,6 +28,9 @@
   请求体两坑：activitySettingsParam 用成功样本补齐（缺 showAllGroupOrder 报 5259）；手机号带 `?ghId=` 打 get_user_input → inputMap["210"]。
 - open_log 必须同时写 goodsIds+goodsNames；commissionPercent 绝不能为 null（整团佣金清零）；拉取别发 firstCategoryIdList。
 - 批量详情 query_list_by_act_ids 整批同生共死（一个无效 actId 整批返 0，已加逐个重试）；keyword 搜款号更准。
+- **批量详情还会偶发串号**：同一 actId 批量查 8230、单查 227。凡是要拿订单数做门槛/报表的，必须**逐条查**（357 条约 2 分钟），批量结果发现"订单数骤降"先怀疑串号、别当退款。
+- 千单汇总的模式口径（用户 2026-11-08 确认）：**跟团** = 上游「选品团长」号，`ghType` 10 普通团长 + 20 明星团长（starGh=True，明星团长也算选品团长）；**帮卖** = 上游「供货品牌」号，`ghType` 105（供应链/品牌方）。feed 的 `upStreamTypeList=[2]`↔ghType10、`[3]`↔ghType20|105 可交叉验证。
+- 平台**没有**"某活动最近下单时间"接口（`get_last_order_by_act_id` 各前缀 404、detail 无 endTime）。判"近期还在出单"只能：①两次快照比 totalOrderNum（21 分钟窗口命中率仅 4%；且逐条查才会稳定，批量会乱）；②与旧报表对比总单量，仅凭"累计单量没变"剔死团。
 - 看不到自己开的团 →「标记已开」/api/log/mark 补录；isFollow→alreadyFollowed 默认不勾选。
 - 同款判定三条判据：goodsId 交集；全部规格商品名同款（匹配名占少方≥50%）；多规格价格指纹（Dice≥0.45）。阈值 0.45，调参必跑回归。
 - 「同款 5 天内已开」= 不丢弃、可见、不开团；图片相似度暂不可用。
