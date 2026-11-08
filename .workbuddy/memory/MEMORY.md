@@ -25,6 +25,7 @@
 ## 关键领域规则
 - `followEarning` 非 null = 能开团；null = 不能开。
 - 帮卖两套模式，工具只做「跟团」：跟团 `for_follow/{actId}/{ghId}`+`/act/release`；子团 `for_leader/…`+`help_sale_child/act/release`，activityType **10→5830，150/160/210 可开**。新号 uid155475458 只能走子团，候选来自 `ghome-feed/act_recommend/get_recommend_acts`。
+- **跟团/帮卖只能按 `activityType` 分**（10=跟团、150/160/210=帮卖子团），**不能按 ghType**：ghType 10=品牌号(自营，朱雅琪/新物商店/淼妈家=跟团)、20=团长号(明星团长露西Grocery/明星品牌馆/绿头像=帮卖)、105=供货品牌(骄傲美食/禧牛/YS供应链=帮卖)。详情接口 `upStreamType` 恒 None，不可用。
   请求体两坑：activitySettingsParam 用成功样本补齐（缺 showAllGroupOrder 报 5259）；手机号带 `?ghId=` 打 get_user_input → inputMap["210"]。
 - open_log 必须同时写 goodsIds+goodsNames；commissionPercent 绝不能为 null（整团佣金清零）；拉取别发 firstCategoryIdList。
 - 批量详情 query_list_by_act_ids 整批同生共死（一个无效 actId 整批返 0，已加逐个重试）；keyword 搜款号更准。
