@@ -573,7 +573,8 @@ def day_label(d):
 
 # ---------------------------------------------------------------- 7. 写表
 def write_xlsx(path, title, days, dates, prev_map, note_lines, min_orders, dead=None,
-               season_dropped=None, slots=None, skip_map=None, idle_label="待开", done_map=None):
+               season_dropped=None, slots=None, skip_map=None, idle_label="待开", done_map=None,
+               black_dropped=None):
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
@@ -682,6 +683,21 @@ def write_xlsx(path, title, days, dates, prev_map, note_lines, min_orders, dead=
         for i, w in enumerate([6, 70, 18, 10, 10], 1):
             z.column_dimensions[get_column_letter(i)].width = w
 
+    # 黑名单剔除（永久不开的供货商，只列出来备查）
+    if black_dropped:
+        k = wb.create_sheet("黑名单剔除")
+        k.append(["序号", "品名", "可点击链接", "供货商", "账号类型", "订单数量"])
+        for c in k[1]:
+            c.font = Font(bold=True)
+            c.fill = PatternFill("solid", fgColor="F2DCDB")
+        for i, r in enumerate(sorted(black_dropped, key=lambda x: -x["orders"]), 1):
+            k.append([i, r["goodsName"] or r["actName"][:60], core_link(r["actId"]),
+                      r["ghName"], kind_label(r), r["orders"]])
+            k.cell(row=k.max_row, column=3).hyperlink = core_link(r["actId"])
+        for i, w in enumerate([6, 60, 34, 18, 12, 10], 1):
+            k.column_dimensions[get_column_letter(i)].width = w
+        k.freeze_panes = "A2"
+
     # 说明
     e = wb.create_sheet("说明")
     for line in note_lines:
@@ -710,6 +726,31 @@ def core_link(act_id):
 # ---------------------------------------------------------------- main
 TANG_GH = "PspU4o9_bsxkBH0_6c6cef00"
 PLAN_PATH = os.path.join(DATA, "open_plan_tang.json")
+BLACKLIST_FILE = os.path.join(DATA, "blacklist_suppliers.json")
+# 永久拉黑的供货商（子串匹配 ghName）。用户 2026-11-14 指定：这两家以后每周都不开。
+BLACKLIST_DEFAULT = ["简小姐", "悦宝"]
+
+
+def load_blacklist():
+    """永久不开的供货商名单。文件存在就以文件为准，不存在用内置默认。
+
+    文件长这样：{"suppliers": ["简小姐", "悦宝"], "note": "..."}
+    匹配方式是「名字里包含」，所以「简小姐优选」「悦宝2号」都会被挡住。
+    """
+    try:
+        with open(BLACKLIST_FILE) as f:
+            b = json.load(f)
+        lst = b.get("suppliers") if isinstance(b, dict) else b
+        if lst:
+            return [str(x) for x in lst if str(x).strip()]
+    except Exception:
+        pass
+    return list(BLACKLIST_DEFAULT)
+
+
+def is_blacklisted(name, bl):
+    n = (name or "").strip()
+    return any(k and k in n for k in bl)
 
 
 def tang_detail():
@@ -823,7 +864,9 @@ def main():
 
     rows = []
     season_map = {"跟团": [], "帮卖": []}
-    stat = {"total": 0, "paused": 0, "ended": 0, "low": 0, "season": 0, "nodata": 0}
+    bl = load_blacklist()
+    black_map = {"跟团": [], "帮卖": []}
+    stat = {"total": 0, "paused": 0, "ended": 0, "low": 0, "season": 0, "nodata": 0, "black": 0}
     for aid, r in cache.items():
         stat["total"] += 1
         if not r or not r.get("actId"):
@@ -837,6 +880,10 @@ def main():
             continue
         if r["orders"] < args.min:
             stat["low"] += 1
+            continue
+        if is_blacklisted(r.get("ghName"), bl):
+            black_map["跟团" if r["activityType"] == 10 else "帮卖"].append(r)
+            stat["black"] += 1
             continue
         if not args.no_season:
             drop, why = season_verdict(r["goodsName"] or r["actName"])
@@ -948,6 +995,7 @@ def main():
             f"数据源：群接龙帮卖广场（汤团号），按活动生效时间逐月扫 2019-01 至今，共 {len(pool)} 个活动，逐条单查详情 {len(cache)} 条。",
             f"门槛：累计订单 ≥{args.min}，且当前在售、未暂停、未结束。",
             f"去重：同款（goodsId 交集 / 商品名同款 / 价格指纹）只留订单最高的一条；已去掉 {len(group)-len(d)} 条重复。",
+            f"黑名单：{'、'.join(bl)} 永久不开团，本期剔除 {len(black_map['跟团' if label == '跟团模式' else '帮卖'])} 条（见「黑名单剔除」页）。",
             f"季节过滤：冬季剔除夏款（扇子/凉鞋/无袖/短袖/凉席等），本期剔除 {len(season_map['跟团' if label == '跟团模式' else '帮卖'])} 条（见「季节剔除」页）。",
             f"近期出单：与上一期（{prev_file}）比对订单数，零变化 {len(dead)} 条已剔除；『新上榜』= 上期没有、本期新进池。",
             f"排期：{len(alive)-len(skip_map)} 条要开的按 7 天均分（{dates[0]:%m-%d}~{dates[-1]:%m-%d}），"
@@ -963,10 +1011,12 @@ def main():
                 "开每一条之前还会现场再查一次「5 天内有没有开过」，有就跳过并记在『执行状态』列，不会靠旧数据硬开。",
                 "停止方法：在项目目录建一个 data/open_plan_STOP 空文件，下一次整点检查就会停。",
             ]
+        bl_this = black_map["跟团" if label == "跟团模式" else "帮卖"]
         n = write_xlsx(path, f"{args.min}单以上{label[:2]}", days, dates, prev_map, notes,
                        args.min, dead=dead, slots=slots, skip_map=skip_map,
                        idle_label="待开" if label == "帮卖模式" else "可开",
                        done_map=done_map if label == "帮卖模式" else None,
+                       black_dropped=bl_this,
                        season_dropped=season_map["跟团" if label == "跟团模式" else "帮卖"])
         out.append((path, n))
         if label == "帮卖模式":

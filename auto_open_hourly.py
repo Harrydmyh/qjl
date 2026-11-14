@@ -68,10 +68,13 @@ def append_log(rec):
 def due_items(plan, now):
     """到点该开的：日期更早的（补课）或今天且整点已到。"""
     today = now.date().isoformat()
+    bl = load_blacklist()
     out = []
     for it in plan.get("items", []):
         if it.get("status") != "pending":
             continue
+        if any(k and k in (it.get("supplier") or "") for k in bl):
+            continue            # 拉黑的供货商，计划里就算有也不开
         d = it.get("date") or ""
         if d < today:
             out.append(it)
@@ -79,6 +82,19 @@ def due_items(plan, now):
             out.append(it)
     out.sort(key=lambda x: (x.get("date") or "", int(x.get("slot") or 0), -int(x.get("orders") or 0)))
     return out
+
+
+def load_blacklist():
+    """永久不开的供货商（与 weekly800 共用 data/blacklist_suppliers.json）。"""
+    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "blacklist_suppliers.json")
+    try:
+        b = json.load(open(p))
+        lst = b.get("suppliers") if isinstance(b, dict) else b
+        if lst:
+            return [str(x) for x in lst if str(x).strip()]
+    except Exception:
+        pass
+    return ["简小姐", "悦宝"]
 
 
 def already_live(cfg, headers, act_id, names_by_act):
