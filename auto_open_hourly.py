@@ -302,7 +302,7 @@ def classify_err(msg):
     return "failed", m[:60]
 
 
-def run(now, dry=0, limit=MAX_PER_RUN):
+def run(now, dry=0, limit=MAX_PER_RUN, only=None):
     cfg = load_account()
 
     plan = load_plan()
@@ -315,6 +315,14 @@ def run(now, dry=0, limit=MAX_PER_RUN):
     if not todo:
         say(f"本时段无到期条目（剩余 {pend_all} 条待开）")
         return 0
+
+    # 调度器指定了「就开这一条」（用于避免落后时一次补一堆），就不自作主张换别的
+    if only is not None:
+        picked = [x for x in todo if x.get("actId") == only]
+        if not picked:
+            say(f"本条已不在待开里（可能刚被开过），跳过：{only}")
+            return 0
+        todo = picked
 
     batch = todo[: limit * 3]      # 多取一些：被查重挡掉的号不占本波名额
     if dry:

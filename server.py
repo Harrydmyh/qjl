@@ -715,6 +715,13 @@ async def auto_status():
     return auto_runner.status()
 
 
+@app.get("/api/auto/day")
+async def auto_day(date: str = ""):
+    """某一天的开团清单（页面点日期看明细用）。"""
+    import auto_runner
+    return auto_runner.day_items(date)
+
+
 class AutoToggle(BaseModel):
     enabled: bool
 

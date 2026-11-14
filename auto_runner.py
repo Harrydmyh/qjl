@@ -14,7 +14,7 @@ import os
 import threading
 import time
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import core
 
@@ -28,6 +28,7 @@ STOP = os.path.join(DATA, "open_plan_STOP")
 
 TICK = 20                 # 每 20 秒巡一次（计划是分钟级的，20 秒足够准）
 HOUR_START, HOUR_END = 7, 22
+MIN_CATCHUP = 15          # 落后补课时，两条之间至少隔这么多分钟（别扎堆）
 
 _events = deque(maxlen=200)      # 最新的在前
 _thread = None
@@ -80,41 +81,152 @@ def push(kind, text):
 
 
 # ---------------------------------------------------------------- 计划统计
+WEEK = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+
+
+def _min(it):
+    return int(it.get("slotMin") or 0)
+
+
+def hhmm(m):
+    return f"{int(m) // 60:02d}:{int(m) % 60:02d}"
+
+
+def _gap_of(ts):
+    """一批时间点里最常见的间隔（分钟）。"""
+    ts = sorted(set(int(t) for t in ts))
+    gaps = [b - a for a, b in zip(ts, ts[1:]) if b > a]
+    if not gaps:
+        return None
+    from collections import Counter
+    return Counter(gaps).most_common(1)[0][0]
+
+
+def _brief(x):
+    return {
+        "time": x.get("time") or "",
+        "slotMin": _min(x),
+        "cat": x.get("cat") or "",
+        "supplier": x.get("supplier") or "",
+        "name": x.get("name") or "",
+        "status": x.get("status") or "",
+        "actId": x.get("actId"),
+        "orders": x.get("orders") or 0,
+    }
+
+
+def _load_plan_blob():
+    with open(PLAN, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def day_items(date):
+    """某一天的清单（含已开/已跳过），按时间排序。"""
+    try:
+        blob = _load_plan_blob()
+    except Exception:
+        return {"ok": False, "msg": "还没有清单"}
+    items = [x for x in (blob.get("items") or []) if (x.get("date") or "") == date]
+    items.sort(key=_min)
+    return {"ok": True, "date": date, "items": [_brief(x) for x in items]}
+
+
 def plan_stats():
     try:
-        with open(PLAN, encoding="utf-8") as f:
-            blob = json.load(f)
+        blob = _load_plan_blob()
     except Exception:
-        return {"ok": False, "msg": "还没有开团计划（先跑一次 weekly800.py 出表）"}
+        return {"ok": False, "msg": "还没有开团清单 —— 先出一次周报（weekly800.py），清单会写到 data/open_plan_tang.json"}
+
     items = blob.get("items") or []
-    today = datetime.now().date().isoformat()
-    cur = datetime.now().hour * 60 + datetime.now().minute
+    now = datetime.now()
+    today_d = now.date()
+    today = today_d.isoformat()
+    cur = now.hour * 60 + now.minute
     pend = [x for x in items if x.get("status") == "pending"]
-    today_items = sorted([x for x in pend if x.get("date") == today],
-                         key=lambda x: (x.get("slotMin") or 0))
-    nxt = None
-    if today_items:
-        nxt = today_items[0]
-    else:
+
+    today_all = sorted([x for x in items if x.get("date") == today], key=_min)
+    today_pend = [x for x in today_all if x.get("status") == "pending"]
+    overdue = [x for x in today_pend if _min(x) <= cur]          # 到点了还没开的
+    later_today = [x for x in today_pend if _min(x) > cur]       # 今天还没到点的
+    nxt = later_today[0] if later_today else None
+    if nxt is None:
         future = sorted([x for x in pend if (x.get("date") or "") > today],
-                        key=lambda x: (x.get("date") or "", x.get("slotMin") or 0))
+                        key=lambda x: (x.get("date") or "", _min(x)))
         nxt = future[0] if future else None
+
+    days = []
+    for i in range(7):
+        d = today_d + timedelta(days=i)
+        ds = d.isoformat()
+        di = [x for x in items if x.get("date") == ds]
+        dp = [x for x in di if x.get("status") == "pending"]
+        ts = [_min(x) for x in dp]
+        days.append({
+            "date": ds,
+            "weekday": WEEK[d.weekday()],
+            "isToday": ds == today,
+            "total": len(di),
+            "pending": len(dp),
+            "opened": sum(1 for x in di if x.get("status") == "opened"),
+            "skipped": sum(1 for x in di if x.get("status") == "skip_recent"),
+            "failed": sum(1 for x in di if x.get("status") == "failed"),
+            "gap": _gap_of(ts),
+            "first": hhmm(min(ts)) if ts else "",
+            "last": hhmm(max(ts)) if ts else "",
+            "cats": _cat_count(dp),
+        })
+
+    gap_today = _gap_of([_min(x) for x in (later_today or today_pend)])
+    gap_next = next((d["gap"] for d in days if not d["isToday"] and d["pending"]), None)
+    pace_bits = []
+    if gap_today:
+        pace_bits.append(f"今天每 {gap_today} 分钟一条")
+    if gap_next:
+        pace_bits.append(f"之后每 {gap_next} 分钟一条")
+
+    nxt_out = None
+    if nxt:
+        nxt_out = _brief(nxt)
+        nxt_out["date"] = nxt.get("date")
+        if nxt.get("date") == today:
+            nxt_out["inMinutes"] = _min(nxt) - cur
+        else:
+            delta_days = (datetime.strptime(nxt["date"], "%Y-%m-%d").date() - today_d).days
+            nxt_out["inMinutes"] = delta_days * 1440 + _min(nxt) - cur
+
+    try:
+        mtime = datetime.fromtimestamp(os.path.getmtime(PLAN)).isoformat(timespec="seconds")
+    except Exception:
+        mtime = None
+
     return {
         "ok": True,
         "updatedAt": blob.get("updatedAt"),
+        "planMtime": mtime,
         "total": len(items),
         "pending": len(pend),
         "opened": sum(1 for x in items if x.get("status") == "opened"),
         "failed": sum(1 for x in items if x.get("status") == "failed"),
         "skipped": sum(1 for x in items if x.get("status") == "skip_recent"),
-        "todayTotal": len(today_items),
-        "todayPending": sum(1 for x in today_items if (x.get("slotMin") or 0) <= cur),
-        "next": None if not nxt else {
-            "date": nxt.get("date"), "time": nxt.get("time"),
-            "name": nxt.get("name"), "supplier": nxt.get("supplier"),
-            "cat": nxt.get("cat"), "actId": nxt.get("actId"),
-        },
+        "today": today,
+        "todayTotal": len(today_all),
+        "todayDone": sum(1 for x in today_all if x.get("status") == "opened"),
+        "todayPending": len(today_pend),
+        "overdue": len(overdue),
+        "pace": " · ".join(pace_bits),
+        "gapToday": gap_today,
+        "gapNext": gap_next,
+        "next": nxt_out,
+        "days": days,
+        "items": [_brief(x) for x in today_all],
+        "cats": _cat_count([x for x in today_all if x.get("status") == "pending"]),
     }
+
+
+def _cat_count(rows):
+    from collections import Counter
+    c = Counter((x.get("cat") or "未分类") for x in rows)
+    return dict(c)
 
 
 # ---------------------------------------------------------------- 账号
@@ -195,9 +307,33 @@ def tick(force=False):
             _last_idle = now.isoformat(timespec="seconds")
             return {"acted": False, "why": "本时段没有到期的条目"}
 
+        # ── 补课限速 ──────────────────────────────────────────────
+        # 关了一段时间再打开时，一堆「已过点」的条目会同时到期。若不管，20 秒
+        # 一次的 tick 会把它们连着一条条开出去，反而扎堆、违背均匀曝光。
+        # 规则：刚过点 5 分钟内的算准点，照计划开；超过 5 分钟算过期，过期条目
+        # 两条之间至少隔 MIN_CATCHUP 分钟。
+        pick = due[0]
+        if due and not force:
+            today = now.date().isoformat()
+            cur = now.hour * 60 + now.minute
+            on_time = [x for x in due if x.get("date") == today and 0 <= cur - _min(x) <= 5]
+            if on_time:
+                pick = on_time[0]
+            else:
+                last = load_state().get("lastOpenAt")
+                if last:
+                    try:
+                        mins = (now - datetime.fromisoformat(last)).total_seconds() / 60
+                    except Exception:
+                        mins = 999
+                    if mins < MIN_CATCHUP:
+                        _last_idle = now.isoformat(timespec="seconds")
+                        return {"acted": False,
+                                "why": f"落后 {len(due)} 条待补，补课间隔 {MIN_CATCHUP} 分钟（距上次 {mins:.0f} 分钟）"}
+
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            code = AUT.run(now, dry=0, limit=1)
+            code = AUT.run(now, dry=0, limit=1, only=pick.get("actId"))
         out = buf.getvalue().strip()
         kind = "idle"
         if "✅" in out:
@@ -214,6 +350,8 @@ def tick(force=False):
         s = load_state()
         s["lastRunAt"] = now.isoformat(timespec="seconds")
         s["lastResult"] = kind
+        if kind == "open":
+            s["lastOpenAt"] = now.isoformat(timespec="seconds")
         save_state(s)
         return {"acted": kind != "idle", "kind": kind, "code": code, "out": out}
     finally:
