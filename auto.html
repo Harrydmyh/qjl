@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>自动开团 · 汤团</title>
+<style>
+  :root{
+    --bg:#f5f7f6; --card:#fff; --line:#e3e8e5; --ink:#1d2a24; --dim:#6b7c74;
+    --green:#1f6f4a; --green2:#2b8a5d; --red:#c0392b; --amber:#b7791f; --blue:#2b6cb0;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;}
+  .wrap{max-width:920px;margin:0 auto;padding:18px 16px 48px}
+  h1{font-size:19px;margin:0 0 2px}
+  .sub{color:var(--dim);font-size:12px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:12px}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .between{justify-content:space-between}
+  .dot{width:10px;height:10px;border-radius:50%;background:#bbb;flex:0 0 auto}
+  .dot.on{background:var(--green2);box-shadow:0 0 0 4px rgba(43,138,93,.15)}
+  .dot.off{background:#b0b8b3}
+  .dot.err{background:var(--red);box-shadow:0 0 0 4px rgba(192,57,43,.15)}
+  .big{font-size:17px;font-weight:600}
+  .muted{color:var(--dim);font-size:12px}
+  button{border:1px solid var(--line);background:#fff;color:var(--ink);border-radius:8px;
+         padding:7px 14px;font-size:13px;cursor:pointer;font-family:inherit}
+  button:hover{border-color:#c8d2cc}
+  button.primary{background:var(--green);border-color:var(--green);color:#fff}
+  button.primary:hover{background:var(--green2)}
+  button.danger{color:var(--red);border-color:#e6c3bd}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .stat .n{font-size:22px;font-weight:600;line-height:1.2}
+  .stat .k{color:var(--dim);font-size:12px}
+  label{display:block;font-size:12px;color:var(--dim);margin:10px 0 4px}
+  input{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;
+        font:13px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;background:#fbfdfc;color:var(--ink)}
+  input:focus{outline:none;border-color:var(--green2);background:#fff}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid #eef2f0;vertical-align:top}
+  th{color:var(--dim);font-weight:500;font-size:12px}
+  td.t{white-space:nowrap;color:var(--dim);font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+  .tag{display:inline-block;padding:1px 7px;border-radius:20px;font-size:11px;white-space:nowrap}
+  .tag.open{background:#e6f4ec;color:var(--green)}
+  .tag.fail{background:#fdecea;color:var(--red)}
+  .tag.skip{background:#fdf3e2;color:var(--amber)}
+  .tag.config{background:#e8f0fa;color:var(--blue)}
+  .tag.idle{background:#f0f2f1;color:var(--dim)}
+  .tag.error{background:#fdecea;color:var(--red)}
+  .hint{font-size:12px;color:var(--dim);margin-top:8px;line-height:1.7}
+  .msg{font-size:12.5px;padding:8px 10px;border-radius:8px;display:none;margin-top:10px}
+  .msg.ok{display:block;background:#e6f4ec;color:var(--green)}
+  .msg.err{display:block;background:#fdecea;color:var(--red)}
+  .empty{color:var(--dim);font-size:12.5px;padding:10px 0}
+  @media(max-width:700px){
+    .grid{grid-template-columns:repeat(2,1fr)}
+    .two{grid-template-columns:1fr}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>自动开团 · 汤团</h1>
+  <div class="sub">服务内置调度，20 秒巡一次；节奏由周报里的『计划开团时间』决定（15-30 分钟一条）</div>
+
+  <div class="card">
+    <div class="row between">
+      <div class="row">
+        <span class="dot off" id="dot"></span>
+        <span class="big" id="stateText">读取中…</span>
+        <span class="muted" id="stateHint"></span>
+      </div>
+      <div class="row">
+        <button id="btnRun">马上开一条</button>
+        <button class="primary" id="btnToggle">启动</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid" style="margin-bottom:12px">
+    <div class="stat"><div class="n" id="sToday">-</div><div class="k">今天计划要开</div></div>
+    <div class="stat"><div class="n" id="sDone">-</div><div class="k">本周已开</div></div>
+    <div class="stat"><div class="n" id="sPend">-</div><div class="k">待开（全部）</div></div>
+    <div class="stat"><div class="n" id="sToken" style="font-size:15px">-</div><div class="k">开团账号</div></div>
+  </div>
+
+  <div class="card">
+    <div class="row between">
+      <span class="big" style="font-size:15px">下一条</span>
+      <span class="muted" id="nextWhen"></span>
+    </div>
+    <div id="nextBox" class="muted" style="margin-top:6px">—</div>
+  </div>
+
+  <div class="card">
+    <div class="row between">
+      <span class="big" style="font-size:15px">开团账号</span>
+      <span class="muted" id="acctSrc"></span>
+    </div>
+    <label>账号备注（随便写，比如「汤团-定时复团」）</label>
+    <input id="fName" placeholder="汤团">
+    <div class="two">
+      <div><label>ghId</label><input id="fGh" placeholder="PspU4o9_bsxkBH0_6c6cef00"></div>
+      <div><label>uid（可空）</label><input id="fUid" placeholder="155475458"></div>
+    </div>
+    <label>auth_token（换号/续期时整段贴上，留空表示不改）</label>
+    <input id="fToken" type="password" placeholder="留空 = 保持现有 token 不变">
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="btnSave">保存账号</button>
+      <span class="muted" id="tokenInfo"></span>
+    </div>
+    <div class="msg" id="acctMsg"></div>
+    <div class="hint">账号存在 <code>data/open_account.json</code>，不动主配置，所以「拉数据用哪个号」和「开团用哪个号」互不影响。</div>
+  </div>
+
+  <div class="card">
+    <div class="row between">
+      <span class="big" style="font-size:15px">最近动作</span>
+      <span class="muted" id="tickInfo"></span>
+    </div>
+    <div id="evBox"><div class="empty">还没有动作记录</div></div>
+    <div class="hint">
+      停止方法：这里点「停止」，或在项目目录建空文件 <code>data/open_plan_STOP</code>。<br>
+      token 大约 48 小时过期，过期后在「开团账号」里贴新 token 保存即可，不用重启服务。
+    </div>
+  </div>
+</div>
+
+<script>
+const ACCESS_KEY = (function(){
+  const q = new URLSearchParams(location.search);
+  const fromUrl = (q.get('k') || '').trim();
+  if (fromUrl) { try { localStorage.setItem('qjl_key', fromUrl); } catch(e){} return fromUrl; }
+  try { return localStorage.getItem('qjl_key') || ''; } catch(e){ return ''; }
+})();
+
+async function api(path, opt){
+  opt = opt || {};
+  opt.headers = Object.assign({'X-Access-Key': ACCESS_KEY, 'Content-Type':'application/json'}, opt.headers || {});
+  const r = await fetch(path, opt);
+  if (r.status === 401) throw new Error('需要访问密钥：在地址后面加 ?k=你的密钥');
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+
+const $ = id => document.getElementById(id);
+let enabled = false;
+
+function fmtTime(iso){
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return iso;
+  const p = n => String(n).padStart(2,'0');
+  return `${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+const KIND = {open:'已开团', fail:'失败', skip:'跳过', config:'配置', idle:'空跑', error:'异常'};
+
+function render(s){
+  enabled = !!s.enabled;
+  const dot = $('dot');
+  dot.className = 'dot ' + (s.account && s.account.error ? 'err' : (s.enabled ? 'on' : 'off'));
+  $('stateText').textContent = s.enabled ? '正在自动开团' : '已停止';
+  const bits = [];
+  if (s.stopFile) bits.push('检测到 STOP 文件');
+  if (!s.threadAlive) bits.push('调度线程未运行');
+  if (s.lastRunAt) bits.push('上次执行 ' + fmtTime(s.lastRunAt));
+  if (s.lastTick) bits.push('巡查于 ' + fmtTime(s.lastTick));
+  $('stateHint').textContent = bits.join(' · ');
+  $('btnToggle').textContent = s.enabled ? '停止' : '启动';
+  $('btnToggle').className = s.enabled ? 'danger' : 'primary';
+
+  const p = s.plan || {};
+  if (!p.ok) {
+    $('sToday').textContent = '-'; $('sDone').textContent = '-'; $('sPend').textContent = '-';
+    $('nextBox').textContent = p.msg || '没有计划';
+  } else {
+    $('sToday').textContent = p.todayTotal;
+    $('sDone').textContent = p.opened;
+    $('sPend').textContent = p.pending;
+    if (p.next) {
+      $('nextWhen').textContent = p.next.date + ' ' + (p.next.time || '');
+      $('nextBox').innerHTML = `<b>${esc(p.next.name || '')}</b><br><span class="muted">${esc(p.next.supplier||'')} · ${esc(p.next.cat||'')}</span>`;
+    } else {
+      $('nextWhen').textContent = '';
+      $('nextBox').textContent = '计划里已经没有待开的了，等下一期周报';
+    }
+  }
+
+  const a = s.account || {};
+  if (a.error) {
+    $('sToken').textContent = '读取失败';
+    $('tokenInfo').textContent = a.error;
+  } else {
+    $('sToken').textContent = a.tokenInfo && a.tokenInfo.valid ? '有效' : '已过期';
+    $('sToken').style.color = (a.tokenInfo && a.tokenInfo.valid) ? 'var(--green)' : 'var(--red)';
+    const ti = a.tokenInfo || {};
+    $('tokenInfo').textContent = [
+      ti.valid ? ('到期 ' + (ti.exp_str || '')) : ('已过期 ' + (ti.exp_str || '')),
+      a.tokenPreview || '未设置 token'
+    ].join(' · ');
+    $('acctSrc').textContent = (a.source || '') + (a.ghId ? ' · ' + a.ghId : '');
+    if (document.activeElement !== $('fName'))  $('fName').value  = a.name  || '';
+    if (document.activeElement !== $('fGh'))    $('fGh').value    = a.ghId  || '';
+    if (document.activeElement !== $('fUid'))   $('fUid').value   = a.uid   || '';
+  }
+
+  $('tickInfo').textContent = s.serverTime ? ('现在 ' + fmtTime(s.serverTime) + ' · 每 ' + s.tickSeconds + ' 秒巡一次') : '';
+
+  const ev = s.events || [];
+  if (!ev.length) {
+    $('evBox').innerHTML = '<div class="empty">还没有动作记录</div>';
+  } else {
+    const rows = ev.slice(0, 25).map(e => `
+      <tr>
+        <td class="t">${fmtTime(e.at)}</td>
+        <td><span class="tag ${e.kind}">${KIND[e.kind] || e.kind}</span></td>
+        <td>${esc(e.text)}</td>
+      </tr>`).join('');
+    $('evBox').innerHTML = `<table><thead><tr><th style="width:96px">时间</th><th style="width:72px">类型</th><th>内容</th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+}
+
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+let busy = false;
+async function refresh(){
+  if (busy) return;
+  try {
+    const s = await api('/api/auto/status');
+    render(s);
+  } catch(e) {
+    $('dot').className = 'dot err';
+    $('stateText').textContent = '读不到状态';
+    $('stateHint').textContent = e.message;
+  }
+}
+
+$('btnToggle').onclick = async () => {
+  busy = true;
+  try {
+    await api('/api/auto/toggle', {method:'POST', body: JSON.stringify({enabled: !enabled})});
+    await refresh();
+  } catch(e){ alert(e.message); }
+  busy = false;
+};
+
+$('btnRun').onclick = async () => {
+  busy = true;
+  $('btnRun').disabled = true;
+  try {
+    const r = await api('/api/auto/run', {method:'POST'});
+    const res = r.result || {};
+    await refresh();
+    if (!res.acted && res.why) alert('没开：' + res.why);
+  } catch(e){ alert(e.message); }
+  $('btnRun').disabled = false;
+  busy = false;
+};
+
+$('btnSave').onclick = async () => {
+  const msg = $('acctMsg');
+  msg.className = 'msg';
+  const body = {
+    name: $('fName').value.trim(),
+    ghId: $('fGh').value.trim(),
+    uid: $('fUid').value.trim(),
+    authToken: $('fToken').value.trim()
+  };
+  if (!body.ghId && !body.authToken && !body.name) {
+    msg.className = 'msg err'; msg.textContent = '至少填一项再保存'; return;
+  }
+  try {
+    await api('/api/auto/account', {method:'POST', body: JSON.stringify(body)});
+    $('fToken').value = '';
+    msg.className = 'msg ok';
+    msg.textContent = '已保存' + (body.authToken ? '，新 token 立即生效' : '');
+    await refresh();
+  } catch(e) {
+    msg.className = 'msg err'; msg.textContent = e.message;
+  }
+};
+
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>

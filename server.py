@@ -699,6 +699,61 @@ async def mark_logged(req: MarkReq):
     return {"ok": True, "marked": marked, "weak": empty}
 
 
+# ── 自动开团（常驻调度，挂在服务里，不依赖 AI 定时任务）────────────────
+@app.get("/auto", response_class=HTMLResponse)
+async def auto_page():
+    html_path = Path(__file__).parent / "auto.html"
+    return HTMLResponse(
+        html_path.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"},
+    )
+
+
+@app.get("/api/auto/status")
+async def auto_status():
+    import auto_runner
+    return auto_runner.status()
+
+
+class AutoToggle(BaseModel):
+    enabled: bool
+
+
+@app.post("/api/auto/toggle")
+async def auto_toggle(body: AutoToggle):
+    import auto_runner
+    st = auto_runner.set_enabled(body.enabled)
+    return {"ok": True, "enabled": st.get("enabled")}
+
+
+@app.post("/api/auto/run")
+async def auto_run_once():
+    """立刻巡一次（页面上「马上开一条」，不受开关与时间窗限制）。"""
+    import auto_runner
+    return {"ok": True, "result": auto_runner.tick(force=True)}
+
+
+class AutoAccount(BaseModel):
+    ghId: str = ""
+    authToken: str = ""
+    uid: str = ""
+    name: str = ""
+
+
+@app.post("/api/auto/account")
+async def auto_account(body: AutoAccount):
+    import auto_runner
+    info = auto_runner.save_account(body.model_dump())
+    return {"ok": True, "account": info}
+
+
+@app.on_event("startup")
+async def _start_auto_runner():
+    """服务一启动就把调度线程挂上（默认关着，页面上点「启动」才真开）。"""
+    import auto_runner
+    auto_runner.ensure_thread()
+
+
 # ── CORS ────────────────────────────────────────────────────────────────
 # 前端可以挂到 Vercel / CloudStudio 这类静态托管上，页面里的请求会跨域打到这台机器，
 # 所以必须开 CORS —— 否则浏览器直接拦掉，连 401 都看不到。
