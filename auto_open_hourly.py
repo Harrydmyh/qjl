@@ -360,8 +360,23 @@ def run(now, dry=0, limit=MAX_PER_RUN, only=None):
             continue
         try:
             good, new_id, name, err = Q.open_child(cfg, aid, phone, dry_run=False)
+            if not good:
+                say(f"ℹ️ open_child 未成({err})，尝试回退到主入口跟团方式(core.open_one_group)")
+                good2, new_id2, name2, err2 = core.open_one_group(cfg, aid, dry_run=False)
+                if good2:
+                    good, new_id, name, err = good2, new_id2, name2 or name, ""
+                else:
+                    err = f"{err}；跟团回退亦失败: {err2}"
         except Exception as e:
-            good, new_id, name, err = False, None, it["name"], f"异常:{e}"
+            try:
+                say(f"ℹ️ open_child 异常({e})，尝试回退到主入口跟团方式(core.open_one_group)")
+                good2, new_id2, name2, err2 = core.open_one_group(cfg, aid, dry_run=False)
+                if good2:
+                    good, new_id, name, err = good2, new_id2, name2 or it.get("name"), ""
+                else:
+                    good, new_id, name, err = False, None, it.get("name"), f"异常:{e}；跟团回退: {err2}"
+            except Exception as e2:
+                good, new_id, name, err = False, None, it["name"], f"异常:{e}；跟团异常: {e2}"
         if good:
             it["status"], it["newActId"] = "opened", new_id
             it["note"], it["doneAt"] = "", datetime.now().isoformat(timespec="seconds")

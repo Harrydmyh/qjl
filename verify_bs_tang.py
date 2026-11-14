@@ -44,10 +44,19 @@ def main():
     ws = wb[wb.sheetnames[0]]
     head = [c.value for c in ws[1]]
     rows = list(ws.iter_rows(min_row=2, values_only=True))
-    l2a = {l: a for a, l in json.load(
-        open(os.path.join(ROOT, "data", "short_link_cache.json"))).items()}
-    ci = head.index("可点击链接")
-    aids = [int(l2a[r[ci]]) for r in rows if l2a.get(r[ci])]
+    l2a = {}
+    p_link = os.path.join(ROOT, "data", "short_link_cache.json")
+    if os.path.exists(p_link):
+        try:
+            l2a = {l: a for a, l in json.load(open(p_link)).items()}
+        except Exception:
+            pass
+    if "活动ID" in head:
+        ai = head.index("活动ID")
+        aids = [int(r[ai]) for r in rows if r[ai]]
+    else:
+        ci = head.index("可点击链接")
+        aids = [int(l2a[r[ci]]) for r in rows if l2a.get(r[ci])]
     print(f"[verify] {len(aids)} 条，逐条查（汤团号）", flush=True)
 
     headers = core.make_headers(cfg)

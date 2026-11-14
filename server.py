@@ -5,15 +5,18 @@ import json
 import os
 import queue
 import secrets
+import subprocess
+import sys
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 import core
@@ -764,6 +767,128 @@ async def auto_account(body: AutoAccount):
     import auto_runner
     info = auto_runner.save_account(body.model_dump())
     return {"ok": True, "account": info}
+
+
+# ── 周报生成与下载 ───────────────────────────────────────────────────────
+_gen_lock = threading.Lock()
+_gen_state = {
+    "state": "idle",       # idle, running, done, failed
+    "started_at": None,
+    "finished_at": None,
+    "progress": "",
+    "error": None,
+    "logs": [],
+}
+
+
+def _run_weekly_gen(offline: bool = False, min_orders: int = 800):
+    global _gen_state
+    cmd = [sys.executable, "-u", str(Path(__file__).parent / "weekly800.py"), "--min", str(min_orders)]
+    if offline:
+        cmd.append("--offline")
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            cwd=str(Path(__file__).parent),
+        )
+        for raw_line in proc.stdout:
+            line = raw_line.strip()
+            if not line:
+                continue
+            with _gen_lock:
+                _gen_state["logs"].append({"t": datetime.now().strftime("%H:%M:%S"), "text": line})
+                if len(_gen_state["logs"]) > 250:
+                    _gen_state["logs"].pop(0)
+                _gen_state["progress"] = line
+        proc.wait()
+        with _gen_lock:
+            if proc.returncode == 0:
+                _gen_state["state"] = "done"
+                _gen_state["finished_at"] = _now_str()
+                _gen_state["progress"] = "周报与开团清单已生成完毕！"
+            else:
+                _gen_state["state"] = "failed"
+                _gen_state["finished_at"] = _now_str()
+                _gen_state["error"] = f"进程异常退出（代码: {proc.returncode}）"
+    except Exception as e:
+        with _gen_lock:
+            _gen_state["state"] = "failed"
+            _gen_state["finished_at"] = _now_str()
+            _gen_state["error"] = str(e)
+
+
+class GenReq(BaseModel):
+    offline: bool = False
+    min_orders: int = 800
+
+
+@app.post("/api/auto/generate")
+async def auto_generate(req: GenReq = GenReq()):
+    global _gen_state
+    with _gen_lock:
+        if _gen_state["state"] == "running":
+            return {"ok": False, "msg": "周报正在生成中，请稍候"}
+        _gen_state = {
+            "state": "running",
+            "started_at": _now_str(),
+            "finished_at": None,
+            "progress": "正在启动 weekly800.py 扫描周报并生成开团清单...",
+            "error": None,
+            "logs": [{"t": datetime.now().strftime("%H:%M:%S"), "text": f"开始执行 weekly800.py (门槛≥{req.min_orders}单)..."}],
+        }
+    threading.Thread(target=_run_weekly_gen, args=(req.offline, req.min_orders), daemon=True).start()
+    return {"ok": True, "msg": "已开始在后台生成周报与开团计划"}
+
+
+@app.get("/api/auto/generate-status")
+async def auto_generate_status():
+    with _gen_lock:
+        return dict(_gen_state)
+
+
+@app.get("/api/auto/reports")
+async def auto_reports():
+    reports_dir = Path(__file__).parent / "周报"
+    reports_dir.mkdir(exist_ok=True)
+    files = []
+    for f in reports_dir.glob("*.xlsx"):
+        if f.name.startswith("~$"):
+            continue
+        st = f.stat()
+        files.append({
+            "name": f.name,
+            "size": st.st_size,
+            "size_str": f"{st.st_size / 1024:.1f} KB" if st.st_size < 1024 * 1024 else f"{st.st_size / (1024 * 1024):.1f} MB",
+            "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"),
+        })
+    files.sort(key=lambda x: x["mtime"], reverse=True)
+    return {"ok": True, "files": files}
+
+
+@app.get("/api/auto/download")
+async def auto_download(file: str = ""):
+    if not file:
+        raise HTTPException(400, "缺少文件名")
+    file_name = Path(file).name
+    target = (Path(__file__).parent / "周报" / file_name).resolve()
+    base = (Path(__file__).parent / "周报").resolve()
+    if not target.is_relative_to(base) or not target.exists():
+        raise HTTPException(404, "文件不存在")
+    encoded_name = quote(file_name)
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_name}",
+        "Access-Control-Expose-Headers": "Content-Disposition",
+    }
+    return FileResponse(
+        str(target),
+        headers=headers,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=file_name,
+    )
 
 
 @app.on_event("startup")

@@ -51,7 +51,13 @@ def say(m):
 # ---------------------------------------------------------------- 1. 读两份表
 def load_rows():
     import openpyxl
-    l2a = {l: a for a, l in json.load(open(os.path.join(DATA, "short_link_cache.json"))).items()}
+    l2a = {}
+    p_link = os.path.join(DATA, "short_link_cache.json")
+    if os.path.exists(p_link):
+        try:
+            l2a = {l: a for a, l in json.load(open(p_link)).items()}
+        except Exception:
+            pass
     files = [("跟团", os.path.join(OUT_DIR, "汤团_跟团模式_800单以上_20261114.xlsx")),
              ("帮卖", os.path.join(OUT_DIR, "汤团_帮卖模式_800单以上_20261114.xlsx"))]
     out = []
@@ -63,7 +69,11 @@ def load_rows():
         head = [c.value for c in ws[1]]
         I = {h: i for i, h in enumerate(head)}
         for r in ws.iter_rows(min_row=2, values_only=True):
-            act = l2a.get(r[I["可点击链接"]])
+            act = None
+            if "活动ID" in I and r[I["活动ID"]]:
+                act = r[I["活动ID"]]
+            elif "可点击链接" in I and l2a:
+                act = l2a.get(r[I["可点击链接"]])
             if not act:
                 continue
             out.append({
@@ -179,31 +189,38 @@ def fetch_children(rows, workers=6):
 
 # ---------------------------------------------------------------- 4. 主页团
 def refresh_own():
-    """汤团号主页全量（含 createTime / endTime），只保留最近 10 天够用，
-    但全量拉一遍也不慢，顺便当「在售」判据。"""
+    """汤团号主页（含 createTime / endTime），只保留最近 10 天够用（最多翻 5 页）。"""
     cfg = json.load(open(os.path.join(DATA, "config.json")))
     cfg["gh_id"] = TANG_GH
     h = core.make_headers(cfg)
     s = core.make_session()
     acts, page = [], 0
-    for p in range(1, 121):
-        r = s.post(f"{core.BASE_URL}/ghome-feed/ghome_feed/query_ghome_feed_back_v2",
-                   json={"page": p, "pageSize": 20, "ghId": TANG_GH,
-                         "keyword": "", "ghType": 20, "sortRule": 10}, headers=h, timeout=20)
-        d = (r.json() or {}).get("data") or {}
-        lst = d.get("feedItemDTOList") or []
-        if not lst:
-            break
-        page = p
-        for x in lst:
-            a = x.get("actItemDTO") or {}
-            if not a.get("actId"):
-                continue
-            acts.append({"actId": a["actId"], "name": a.get("activityName") or "",
-                         "status": a.get("activityStatus"), "pause": a.get("pauseSw"),
-                         "create": a.get("createTime") or 0, "end": a.get("endTime") or 0,
-                         "type": a.get("activityType")})
-        if not d.get("hasNextPage"):
+    cutoff = int(time.time() * 1000) - 10 * 86400000
+    for p in range(1, 6):
+        try:
+            r = s.post(f"{core.BASE_URL}/ghome-feed/ghome_feed/query_ghome_feed_back_v2",
+                       json={"page": p, "pageSize": 20, "ghId": TANG_GH,
+                             "keyword": "", "ghType": 20, "sortRule": 10}, headers=h, timeout=10)
+            d = (r.json() or {}).get("data") or {}
+            lst = d.get("feedItemDTOList") or []
+            if not lst:
+                break
+            page = p
+            old_count = 0
+            for x in lst:
+                a = x.get("actItemDTO") or {}
+                if not a.get("actId"):
+                    continue
+                ct = a.get("createTime") or 0
+                acts.append({"actId": a["actId"], "name": a.get("activityName") or "",
+                             "status": a.get("activityStatus"), "pause": a.get("pauseSw"),
+                             "create": ct, "end": a.get("endTime") or 0,
+                             "type": a.get("activityType")})
+                if ct < cutoff and not x.get("stickyStatus"):
+                    old_count += 1
+            if not d.get("hasNextPage") or old_count >= 15:
+                break
+        except Exception:
             break
     # 去重（主页会因置顶/翻页重复）
     seen, uniq = set(), []

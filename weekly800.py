@@ -168,9 +168,9 @@ def fetch_window(session, headers, gh_id, st, en, workers=8):
     return items
 
 
-def scan_pool(cfg, use_cache=True):
+def scan_pool(cfg, use_cache=True, rescan_all=False):
     path = os.path.join(DATA, "weekly800_pool.json")
-    if use_cache and os.path.exists(path):
+    if use_cache and os.path.exists(path) and not rescan_all:
         age = time.time() - os.path.getmtime(path)
         if age < 12 * 3600:
             with open(path) as f:
@@ -183,7 +183,23 @@ def scan_pool(cfg, use_cache=True):
     q = DummyQ()
     session = core.make_session()
     seen, ordered = set(), []
-    d = datetime(2019, 1, 1)
+
+    # 增量扫描：若历史池已存在，载入已有 actId，只扫描最近 60 天的新活动
+    if os.path.exists(path) and not rescan_all:
+        try:
+            with open(path) as f:
+                old_list = json.load(f)
+            for aid in old_list:
+                if aid and aid not in seen:
+                    seen.add(aid)
+                    ordered.append(aid)
+            print(f"[pool] 继承已有池 {len(ordered)} 条，增量扫描近 2 个月广场...")
+            d = (datetime.now() - timedelta(days=60)).replace(day=1)
+        except Exception:
+            d = datetime(2019, 1, 1)
+    else:
+        d = datetime(2019, 1, 1)
+
     end = datetime.now()
     while d <= end:
         nxt = (d + timedelta(days=32)).replace(day=1)
@@ -205,7 +221,6 @@ def scan_pool(cfg, use_cache=True):
         if added:
             print(f"  {label}: +{added} (累计 {len(ordered)})", flush=True)
         d = nxt
-        # 未来月份没有活动，扫到当月就够
     with open(path, "w") as f:
         json.dump(ordered, f)
     print(f"[pool] 共 {len(ordered)} 个 actId")
@@ -277,6 +292,12 @@ def collect_seeds():
             except Exception:
                 continue
             head = [c.value for c in ws[1]]
+            if "活动ID" in head:
+                ai = head.index("活动ID")
+                for row in ws.iter_rows(min_row=2, values_only=True):
+                    if row[ai]:
+                        add(row[ai])
+                continue
             if "可点击链接" not in head:
                 continue
             ci = head.index("可点击链接")
@@ -303,22 +324,69 @@ def fetch_one(cfg, session, headers, act_id):
     return None
 
 
-def fetch_details(cfg, act_ids, workers=12):
-    """逐条查详情。缓存**只在当天有效** —— 订单数每天会变，跨天复用会让
-    「近期有出单」的判定失真。"""
+def fetch_details(cfg, act_ids, workers=12, force_all=False):
+    """逐条查详情。
+    
+    智能增量策略：
+      1. 当天内重复运行：命中同日缓存，直接秒级复用。
+      2. 跨天/跨周运行（增量）：
+         - 历史不存在/已下架（None）：判定为失效死团，跳过单查。
+         - 订单 < 400 且创建超过 90 天：历史极低销老团（1.8万+条），不可能突然冲上800单门槛，跳过单查并保留缓存。
+         - 订单 >= 400 或创建 90 天内的新团、以及未见过的全新 actId：作为候选与近期活跃团，并发单查，更新最新订单数与在售状态！
+      3. 如需强制全量查 23000+ 条，可传入 force_all=True。
+    """
     cache_path = os.path.join(DATA, "weekly800_detail_cache.json")
     today = datetime.now().strftime("%Y%m%d")
+    now_ms = time.time() * 1000
     cache = {}
+    last_date = None
     if os.path.exists(cache_path):
         try:
             with open(cache_path) as f:
                 blob = json.load(f)
-            if blob.get("date") == today:
-                cache = blob.get("data") or {}
+            last_date = blob.get("date")
+            cache = blob.get("data") or {}
         except Exception:
             cache = {}
-    todo = [a for a in act_ids if str(a) not in cache]
-    print(f"[detail] 待查 {len(todo)} / 共 {len(act_ids)}（同日缓存命中 {len(act_ids)-len(todo)}）")
+
+    is_same_day = (last_date == today) and not force_all
+    todo = []
+    skipped_ancient = 0
+    skipped_not_found = 0
+
+    for a in act_ids:
+        k = str(a)
+        if k not in cache:
+            todo.append(a)
+            continue
+        if is_same_day:
+            continue
+        if force_all:
+            todo.append(a)
+            continue
+
+        item = cache[k]
+        if not item:
+            skipped_not_found += 1
+            continue
+
+        orders = item.get("orders", 0)
+        eff_ms = item.get("effectTime") or 0
+        age_days = (now_ms - eff_ms) / (86400 * 1000)
+
+        # 90 天以上老团且订单低于 400：极冷死团，无需重新发起网络请求，保留历史缓存
+        if orders < 400 and age_days > 90:
+            skipped_ancient += 1
+            continue
+
+        todo.append(a)
+
+    if is_same_day:
+        print(f"[detail] 命中同日缓存 {len(act_ids)-len(todo)} / 待查 {len(todo)}")
+    else:
+        print(f"[detail] 智能增量待查 {len(todo)} / 共 {len(act_ids)} "
+              f"(跳过历史低销老团 {skipped_ancient}，跳过失效团 {skipped_not_found})")
+
     headers = core.make_headers(cfg)
     done = 0
     t0 = time.time()
@@ -330,7 +398,7 @@ def fetch_details(cfg, act_ids, workers=12):
                 det = fut.result()
                 cache[str(a)] = flatten(det) if det else None
                 done += 1
-                if done % 500 == 0 or done == len(todo):
+                if done % 200 == 0 or done == len(todo):
                     el = time.time() - t0
                     print(f"  详情 {done}/{len(todo)}  {el:.0f}s  剩约 {el/max(done,1)*(len(todo)-done)/60:.1f} 分钟",
                           flush=True)
@@ -602,7 +670,7 @@ def write_xlsx(path, title, days, dates, prev_map, note_lines, min_orders, dead=
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = title
-    head = ["序号", "开团日", "日期", "品名", "可点击链接", "供货商", "账号类型", "品类",
+    head = ["序号", "活动ID", "开团日", "日期", "品名", "可点击链接", "供货商", "账号类型", "品类",
             "订单数量", "初始开团日期", "本期新增", "计划开团时间", "执行状态"]
     ws.append(head)
     head_fill = PatternFill("solid", fgColor="1F6F4A")
@@ -628,7 +696,7 @@ def write_xlsx(path, title, days, dates, prev_map, note_lines, min_orders, dead=
             when = f"{dates[di]:%m-%d} {hhmm(hour)}" if hour is not None else ""
             st = (done_map or {}).get(str(r["actId"])) or \
                  (skip_map or {}).get(str(r["actId"])) or idle_label
-            ws.append([n, day_label(dates[di]), f"{dates[di]:%m-%d}",
+            ws.append([n, r["actId"], day_label(dates[di]), f"{dates[di]:%m-%d}",
                        r["goodsName"] or r["actName"][:60],
                        link, r["ghName"], kind_label(r),
                        classify_cat.CAT_NAME.get(r.get("cat", 4), "杂货"),
@@ -639,17 +707,17 @@ def write_xlsx(path, title, days, dates, prev_map, note_lines, min_orders, dead=
                 cell = ws.cell(row=row, column=c)
                 cell.fill = fill
                 cell.border = Border(bottom=thin)
-                if c in (1, 2, 3, 7, 8, 9, 10, 11, 12, 13):
+                if c in (1, 2, 3, 4, 8, 9, 10, 11, 12, 13, 14):
                     cell.alignment = Alignment(horizontal="center")
-            ws.cell(row=row, column=5).hyperlink = link
-            ws.cell(row=row, column=5).font = Font(color="0B5FFF", size=9)
-            ws.cell(row=row, column=4).alignment = Alignment(wrap_text=False)
-            ws.cell(row=row, column=9).number_format = "#,##0"
+            ws.cell(row=row, column=6).hyperlink = link
+            ws.cell(row=row, column=6).font = Font(color="0B5FFF", size=9)
+            ws.cell(row=row, column=5).alignment = Alignment(wrap_text=False)
+            ws.cell(row=row, column=10).number_format = "#,##0"
             if str(r["actId"]) in (skip_map or {}) or str(r["actId"]) in (done_map or {}):
-                cell = ws.cell(row=row, column=13)
+                cell = ws.cell(row=row, column=14)
                 cell.font = Font(color="1F6F4A" if str(r["actId"]) in (done_map or {}) else "C00000",
                                  size=10, bold=True)
-    widths = [6, 8, 8, 60, 34, 18, 12, 10, 10, 12, 10, 14, 16]
+    widths = [6, 18, 8, 8, 60, 34, 18, 12, 10, 10, 12, 10, 14, 16]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.auto_filter.ref = f"A1:{get_column_letter(len(head))}{ws.max_row}"
@@ -678,43 +746,43 @@ def write_xlsx(path, title, days, dates, prev_map, note_lines, min_orders, dead=
     # 零变化备查（上期有、本期订单数没动过 → 不进主表）
     if dead:
         d = wb.create_sheet("零变化备查")
-        d.append(["序号", "品名", "可点击链接", "供货商", "账号类型", "订单数量", "初始开团日期"])
+        d.append(["序号", "活动ID", "品名", "可点击链接", "供货商", "账号类型", "订单数量", "初始开团日期"])
         for c in d[1]:
             c.font = Font(bold=True)
             c.fill = PatternFill("solid", fgColor="EEEEEE")
         for i, r in enumerate(sorted(dead, key=lambda x: -x["orders"]), 1):
-            d.append([i, r["goodsName"] or r["actName"][:60], core_link(r["actId"]),
+            d.append([i, r["actId"], r["goodsName"] or r["actName"][:60], core_link(r["actId"]),
                       r["ghName"], kind_label(r), r["orders"], r["startDate"]])
-            d.cell(row=d.max_row, column=3).hyperlink = core_link(r["actId"])
-        for i, w in enumerate([6, 60, 34, 18, 12, 10, 12], 1):
+            d.cell(row=d.max_row, column=4).hyperlink = core_link(r["actId"])
+        for i, w in enumerate([6, 18, 60, 34, 18, 12, 10, 12], 1):
             d.column_dimensions[get_column_letter(i)].width = w
         d.freeze_panes = "A2"
 
     # 季节剔除清单（供核对，不参与开团排期）
     if season_dropped:
         z = wb.create_sheet("季节剔除")
-        z.append(["序号", "品名", "供货商", "订单数量", "命中词"])
+        z.append(["序号", "活动ID", "品名", "供货商", "订单数量", "命中词"])
         for c in z[1]:
             c.font = Font(bold=True)
             c.fill = PatternFill("solid", fgColor="EEEEEE")
         for i, r in enumerate(sorted(season_dropped, key=lambda x: -x["orders"]), 1):
-            z.append([i, r["goodsName"] or r["actName"][:60], r["ghName"],
+            z.append([i, r["actId"], r["goodsName"] or r["actName"][:60], r["ghName"],
                       r["orders"], r.get("seasonHit", "")])
-        for i, w in enumerate([6, 70, 18, 10, 10], 1):
+        for i, w in enumerate([6, 18, 70, 18, 10, 10], 1):
             z.column_dimensions[get_column_letter(i)].width = w
 
     # 黑名单剔除（永久不开的供货商，只列出来备查）
     if black_dropped:
         k = wb.create_sheet("黑名单剔除")
-        k.append(["序号", "品名", "可点击链接", "供货商", "账号类型", "订单数量"])
+        k.append(["序号", "活动ID", "品名", "可点击链接", "供货商", "账号类型", "订单数量"])
         for c in k[1]:
             c.font = Font(bold=True)
             c.fill = PatternFill("solid", fgColor="F2DCDB")
         for i, r in enumerate(sorted(black_dropped, key=lambda x: -x["orders"]), 1):
-            k.append([i, r["goodsName"] or r["actName"][:60], core_link(r["actId"]),
+            k.append([i, r["actId"], r["goodsName"] or r["actName"][:60], core_link(r["actId"]),
                       r["ghName"], kind_label(r), r["orders"]])
-            k.cell(row=k.max_row, column=3).hyperlink = core_link(r["actId"])
-        for i, w in enumerate([6, 60, 34, 18, 12, 10], 1):
+            k.cell(row=k.max_row, column=4).hyperlink = core_link(r["actId"])
+        for i, w in enumerate([6, 18, 60, 34, 18, 12, 10], 1):
             k.column_dimensions[get_column_letter(i)].width = w
         k.freeze_panes = "A2"
 
@@ -861,7 +929,8 @@ def export_plan(days, dates, slots, skip_map, detail=None):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--min", type=int, default=MIN_ORDERS)
-    ap.add_argument("--rescan", action="store_true")
+    ap.add_argument("--rescan", action="store_true", help="忽略池缓存重新全量扫广场")
+    ap.add_argument("--force-all", action="store_true", help="强制全量重新查所有历史活动的详情（耗时较长），默认只增量查在售/潜力/新活动")
     ap.add_argument("--no-season", action="store_true")
     ap.add_argument("--offline", action="store_true", help="只用今天已抓的详情缓存，不联网")
     args = ap.parse_args()
@@ -871,7 +940,7 @@ def main():
     cfg = json.load(open(os.path.join(DATA, "config.json")))
     os.makedirs(OUT_DIR, exist_ok=True)
 
-    pool = scan_pool(cfg, use_cache=not args.rescan)
+    pool = scan_pool(cfg, use_cache=not args.rescan, rescan_all=args.rescan)
 
     # 广场扫描会漏「长期挂着的老团」，把历史已知 actId 全部并进来兜底
     seeds = collect_seeds()
@@ -883,7 +952,7 @@ def main():
     else:
         print("[seed] 历史池无新增")
 
-    cache = fetch_details(cfg, [] if args.offline else pool)
+    cache = fetch_details(cfg, [] if args.offline else pool, force_all=args.force_all)
     print(f"[detail] 拿到 {len(cache)} 条详情，用时 {time.time()-t0:.0f}s")
 
     rows = []
