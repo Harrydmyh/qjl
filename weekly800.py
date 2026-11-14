@@ -515,7 +515,8 @@ def split_seven(rows):
 
 WEEK_LABEL = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 
-HOUR_START, HOUR_END = 7, 22          # 每天 07:00-22:00 每小时一波
+HOUR_START, HOUR_END = 7, 22          # 每天 07:00-22:00 之间开团
+GAP_MIN, GAP_MAX = 15, 30             # 两条之间间隔锁在 15~30 分钟（均匀曝光）
 
 
 def week_dates():
@@ -524,34 +525,53 @@ def week_dates():
     return [today + timedelta(days=i) for i in range(7)]
 
 
-def build_slots(days, dates, skip_map=None):
-    """把每天**要开**的条目摊到整点上：07-22 共 16 个整点。
+def _spread(n, date, now=None):
+    """把 n 条铺在今天的开团窗口里，返回 **分钟数** 列表（0 点起算）。
 
-    今天特殊：只排「现在之后的整点」，不然一上来就把今天全放出去。
-    被标记跳过（已在售）的条目不占整点，返回 None。
+    目标是「半小时一条」那种均匀曝光，而不是整点扎堆：
+      · 间隔先按 窗口/(n-1) 算，再夹到 15~30 分钟、向下取 5 分钟的整数倍；
+      · 未来几天两头留白居中（07:00-22:00 正中间铺开）；
+      · 今天从「现在之后的下一个 5 分钟点」直接开始，不居中，免得白白空等；
+      · 窗口塞不下就压缩间隔（下限 15 分钟），宁可密一点也不跨出窗口。
     """
+    if n <= 0:
+        return []
+    start, end = HOUR_START * 60, HOUR_END * 60
+    today_mode = False
+    if now is not None and date == now.date():
+        cur = now.hour * 60 + now.minute
+        start = max(start, ((cur + 4) // 5) * 5 + 5)     # 下一个 5 分钟点，留 5 分钟余量
+        today_mode = True
+    if start >= end:
+        return [end] * n
+    span = end - start
+    if n == 1:
+        return [start]
+    gap = span / (n - 1)
+    gap = int(min(GAP_MAX, max(GAP_MIN, gap)) // 5 * 5)
+    if gap * (n - 1) > span:                              # 塞不下 → 再压缩到 5 分钟
+        gap = max(5, int(span / (n - 1)) // 5 * 5)
+    used = gap * (n - 1)
+    base = start if today_mode else start + max(0, (span - used) // 2)
+    return [base + i * gap for i in range(n)]
+
+
+def hhmm(minutes):
+    return f"{int(minutes) // 60:02d}:{int(minutes) % 60:02d}"
+
+
+def build_slots(days, dates, skip_map=None):
+    """每天「要开」的条目各占一个分钟级时间点；跳过的条目不占时间（返回 None）。"""
     skip_map = skip_map or {}
     now = datetime.now()
     out = []
     for di, chunk in enumerate(days):
-        hours = list(range(HOUR_START, HOUR_END + 1))
-        if dates[di] == now.date():
-            hours = [h for h in hours if h > now.hour]
-        if not hours:
-            hours = [HOUR_END]
-        exec_n = sum(1 for r in chunk if str(r["actId"]) not in skip_map)
-        m = len(hours)
-        base, extra = divmod(exec_n, m)
-        counts = [base] * m
-        if extra:
-            # 多出来的几条均匀插到整点里（不是全堆在第一小时）
-            for k in range(extra):
-                counts[(k * m) // extra] += 1
-        slots = []
-        for h, c in zip(hours, counts):
-            slots.extend([h] * c)
-        slots.extend([None] * (len(chunk) - exec_n))
-        out.append(slots)
+        idx = [i for i, r in enumerate(chunk) if str(r["actId"]) not in skip_map]
+        times = _spread(len(idx), dates[di], now)
+        row = [None] * len(chunk)
+        for i, t in zip(idx, times):
+            row[i] = t
+        out.append(row)
     return out
 
 
@@ -605,7 +625,7 @@ def write_xlsx(path, title, days, dates, prev_map, note_lines, min_orders, dead=
             if prev is None:
                 delta = "新上榜"
             hour = (slots[di][ii] if slots and ii < len(slots[di]) else None)
-            when = f"{dates[di]:%m-%d} {hour:02d}:00" if hour else ""
+            when = f"{dates[di]:%m-%d} {hhmm(hour)}" if hour is not None else ""
             st = (done_map or {}).get(str(r["actId"])) or \
                  (skip_map or {}).get(str(r["actId"])) or idle_label
             ws.append([n, day_label(dates[di]), f"{dates[di]:%m-%d}",
@@ -801,7 +821,9 @@ def export_plan(days, dates, slots, skip_map, detail=None):
     items = []
     for di, chunk in enumerate(days):
         for ii, r in enumerate(chunk):
-            hour = slots[di][ii] if ii < len(slots[di]) else HOUR_END
+            mins = slots[di][ii] if ii < len(slots[di]) else None
+            if mins is None:
+                mins = HOUR_END * 60
             key = str(r["actId"])
             prev = old.get(key) or {}
             done = prev.get("status") in ("opened", "failed", "gone")
@@ -813,7 +835,9 @@ def export_plan(days, dates, slots, skip_map, detail=None):
                 "cat": classify_cat.CAT_NAME.get(r.get("cat", 4), "杂货"),
                 "orders": r["orders"],
                 "date": dates[di].isoformat(),
-                "slot": hour,
+                "time": hhmm(mins),          # HH:MM，执行器按这个到点开
+                "slotMin": int(mins),        # 0 点起的分钟数，方便比较
+                "slot": int(mins) // 60,     # 兼容老字段
                 "status": prev.get("status") if done else
                           ("skip_recent" if key in skip_map else "pending"),
                 "newActId": prev.get("newActId"),
@@ -976,6 +1000,7 @@ def main():
                 dead.append(r)
         print(f"[active] {label}: 有变动 {len(alive)-len(fresh)} / 新上榜 {len(fresh)} / 零变化剔除 {len(dead)}")
         skip_map = {k: v for k, v in skip_all.items() if k in {str(r["actId"]) for r in alive}}
+        dm = done_map if label == "帮卖模式" else {}
         if skip_map:
             ex = [r for r in alive if str(r["actId"]) not in skip_map]
             sk = [r for r in alive if str(r["actId"]) in skip_map]
@@ -983,11 +1008,11 @@ def main():
             days = add_skips(split_seven(ex), sk)
         else:
             days = split_seven(alive)
-        slots = build_slots(days, dates, skip_map)
+        # 已开 / 跳过的都不占时间点，时间点全留给真正要开的
+        slots = build_slots(days, dates, {**skip_map, **{k: "已开" for k in dm}})
         path = os.path.join(OUT_DIR, f"汤团_{label}_{args.min}单以上_{today}.xlsx")
         n_new = sum(1 for v in skip_map.values() if v.startswith("5天"))
         n_dup = len(skip_map) - n_new
-        dm = done_map if label == "帮卖模式" else {}
         # 已开的里面有些同时又在 skip_map 里（比如今天刚开、5 天内算已开），别重复扣
         n_todo = len(alive) - len(skip_map) - sum(1 for k in dm if k not in skip_map)
         notes = [

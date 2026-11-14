@@ -39,7 +39,7 @@ LOCK = os.path.join(DATA, "open_plan.lock")
 STOP = os.path.join(DATA, "open_plan_STOP")
 TANG_GH = "PspU4o9_bsxkBH0_6c6cef00"
 HOUR_START, HOUR_END = 7, 22
-MAX_PER_RUN = 4
+MAX_PER_RUN = 1          # 一次只开 1 条：间隔交给排期里的分钟级时间点，不靠一口气连开
 
 
 def say(msg):
@@ -65,9 +65,21 @@ def append_log(rec):
         f.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
 
+def _due_min(it):
+    """条目该开的时刻（0 点起的分钟数）。新计划用 slotMin，老计划退回 slot 小时。"""
+    if it.get("slotMin") is not None:
+        return int(it["slotMin"])
+    t = it.get("time") or ""
+    if ":" in t:
+        h, m = t.split(":")[:2]
+        return int(h) * 60 + int(m)
+    return int(it.get("slot") or 0) * 60
+
+
 def due_items(plan, now):
-    """到点该开的：日期更早的（补课）或今天且整点已到。"""
+    """到点该开的：日期更早的（补课）或今天且时间点已到。按时间先后排队。"""
     today = now.date().isoformat()
+    cur = now.hour * 60 + now.minute
     bl = load_blacklist()
     out = []
     for it in plan.get("items", []):
@@ -78,9 +90,9 @@ def due_items(plan, now):
         d = it.get("date") or ""
         if d < today:
             out.append(it)
-        elif d == today and int(it.get("slot") or 0) <= now.hour:
+        elif d == today and _due_min(it) <= cur:
             out.append(it)
-    out.sort(key=lambda x: (x.get("date") or "", int(x.get("slot") or 0), -int(x.get("orders") or 0)))
+    out.sort(key=lambda x: (x.get("date") or "", _due_min(x), -int(x.get("orders") or 0)))
     return out
 
 
@@ -212,14 +224,14 @@ def run(now, dry=0, limit=MAX_PER_RUN):
     todo = due_items(plan, now)
     pend_all = sum(1 for x in plan["items"] if x.get("status") == "pending")
     if not todo:
-        say(f"本小时无待开（剩余 {pend_all} 条）")
+        say(f"本时段无到期条目（剩余 {pend_all} 条待开）")
         return 0
 
     batch = todo[: limit * 3]      # 多取一些：被查重挡掉的号不占本波名额
     if dry:
         say(f"[dry] 现在该开 {len(todo)} 条，本次先开 {limit} 条（候选 {len(batch)}）:")
         for it in batch[:limit]:
-            say(f"  {it['date']} {it['slot']:02d}:00 [{it['cat']}] {it['supplier'][:8]} {it['name'][:26]}")
+            say(f"  {it['date']} {it.get('time') or ''} [{it['cat']}] {it['supplier'][:8]} {it['name'][:26]}")
         return 0
 
     ti = core.token_info(cfg)
@@ -257,7 +269,7 @@ def run(now, dry=0, limit=MAX_PER_RUN):
             it["status"], it["newActId"] = "opened", new_id
             it["note"], it["doneAt"] = "", datetime.now().isoformat(timespec="seconds")
             ok += 1
-            say(f"✅ {it['cat']} | {it['supplier'][:8]} | {it['name'][:24]} → {new_id}")
+            say(f"✅ {it.get('time','')} {it['cat']} | {it['supplier'][:8]} | {it['name'][:24]} → {new_id}")
         else:
             st, note = classify_err(err)
             it["status"], it["note"] = st, note
