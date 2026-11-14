@@ -37,7 +37,7 @@ import core
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(ROOT, "data")
 OUT_DIR = os.path.join(ROOT, "周报")
-TANG_GH = "PspU4o9_bsxkBH0_6c6cef00"
+TANG_GH = "PsHHJN8_bsMtSbS_b09f0984"
 CACHE_CHILD = os.path.join(DATA, "open_check_child.json")
 CACHE_OWN = os.path.join(DATA, "tang_own_acts.json")
 RESULT = os.path.join(DATA, "open_check.json")
@@ -188,10 +188,12 @@ def fetch_children(rows, workers=6):
 
 
 # ---------------------------------------------------------------- 4. 主页团
-def refresh_own():
-    """汤团号主页（含 createTime / endTime），只保留最近 10 天够用（最多翻 5 页）。"""
-    cfg = json.load(open(os.path.join(DATA, "config.json")))
-    cfg["gh_id"] = TANG_GH
+def refresh_own(cfg=None):
+    """主页团（含 createTime / endTime），只保留最近 10 天够用（最多翻 5 页）。"""
+    if not cfg:
+        cfg = json.load(open(os.path.join(DATA, "config.json")))
+    gh = cfg.get("gh_id") or TANG_GH
+    cfg["gh_id"] = gh
     h = core.make_headers(cfg)
     s = core.make_session()
     acts, page = [], 0
@@ -199,7 +201,7 @@ def refresh_own():
     for p in range(1, 6):
         try:
             r = s.post(f"{core.BASE_URL}/ghome-feed/ghome_feed/query_ghome_feed_back_v2",
-                       json={"page": p, "pageSize": 20, "ghId": TANG_GH,
+                       json={"page": p, "pageSize": 20, "ghId": gh,
                              "keyword": "", "ghType": 20, "sortRule": 10}, headers=h, timeout=10)
             d = (r.json() or {}).get("data") or {}
             lst = d.get("feedItemDTOList") or []

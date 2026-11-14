@@ -37,7 +37,7 @@ PLAN = os.path.join(DATA, "open_plan_tang.json")
 LOG = os.path.join(DATA, "open_plan_log.jsonl")
 LOCK = os.path.join(DATA, "open_plan.lock")
 STOP = os.path.join(DATA, "open_plan_STOP")
-TANG_GH = "PspU4o9_bsxkBH0_6c6cef00"
+TANG_GH = "PsHHJN8_bsMtSbS_b09f0984"
 ACCOUNT_FILE = os.path.join(DATA, "open_account.json")
 
 
@@ -220,8 +220,8 @@ def _static_check():
     return _STATIC
 
 
-def own_acts(max_age=1800):
-    """汤团号主页团（含创建时间），半小时内复用本地缓存。"""
+def own_acts(cfg=None, max_age=1800):
+    """主页团（含创建时间），半小时内复用本地缓存。"""
     global _OWN
     if _OWN is not None:
         return _OWN
@@ -237,7 +237,7 @@ def own_acts(max_age=1800):
         except Exception:
             pass
     try:
-        _OWN = D.refresh_own()
+        _OWN = D.refresh_own(cfg)
     except Exception as e:
         say(f"⚠️ 拉主页团失败（{e}），本轮只按子团记录判重")
         _OWN = []
@@ -248,9 +248,9 @@ def precheck(cfg, headers, it):
     """这条能不能开。返回 (ok, 原因, 证据)。
 
     两道：
-      1. 子团记录 —— 汤团号给这个母团开过的子团，5 天内创建过就不开（最硬）；
+      1. 子团记录 —— 该号给这个母团开过的子团，5 天内创建过就不开（最硬）；
       2. 主页团名 —— 近 5 天创建的团里有没有同名的（跟团不产生子团记录，只能按名字认）。
-    主页那 2000 多个团只在第 1 道没命中时才拉，省时间。
+    主页团只在第 1 道没命中时才拉，省时间。
     """
     aid = int(it["actId"])
     now = int(time.time() * 1000)
@@ -264,9 +264,10 @@ def precheck(cfg, headers, it):
         return False, "重复", v.get("evidence") or ""
 
     s = core.make_session()
+    gh = cfg.get("gh_id") or TANG_GH
     try:
         r = s.post("https://apipro.qunjielong.com/activity-accessory/gh_activity/list_gh_child_activities",
-                   json={"ghId": TANG_GH, "pactId": aid, "page": 1, "pageSize": 50},
+                   json={"ghId": gh, "pactId": aid, "page": 1, "pageSize": 50},
                    headers=headers, timeout=15)
         d = (r.json() or {}).get("data")
         kids = d if isinstance(d, list) else ((d or {}).get("list") or (d or {}).get("records") or [])
@@ -277,9 +278,7 @@ def precheck(cfg, headers, it):
         k = max(young, key=lambda x: x.get("createTime") or 0)
         return False, "5天内已开", f"子团 {k.get('actId')}（{datetime.fromtimestamp((k.get('createTime') or 0)/1000):%m-%d %H:%M}）"
 
-    # 注意：**不能**把「有在售子团」当拦截。这个号本来就把同一个母团每 7~20 天
-    # 重开一次，371/620 条都挂着在售子团，按在售判会一条都开不出来。
-    own = own_acts()
+    own = own_acts(cfg)
     # 主页团名是「活动标题」，跟商品名差得远，优先用 actName 比；两个都比一遍
     cands = [x for x in (it.get("actName"), it.get("name")) if x]
     for nm in cands:
@@ -359,24 +358,15 @@ def run(now, dry=0, limit=MAX_PER_RUN, only=None):
             say(f"⏭ 不开 {it['supplier'][:8]} | {it['name'][:22]} → {why}（{ev}）")
             continue
         try:
-            good, new_id, name, err = Q.open_child(cfg, aid, phone, dry_run=False)
-            if not good:
-                say(f"ℹ️ open_child 未成({err})，尝试回退到主入口跟团方式(core.open_one_group)")
-                good2, new_id2, name2, err2 = core.open_one_group(cfg, aid, dry_run=False)
-                if good2:
-                    good, new_id, name, err = good2, new_id2, name2 or name, ""
-                else:
-                    err = f"{err}；跟团回退亦失败: {err2}"
+            # 模仿主界面（选品跟团）：通过 core.open_one_group 发布到「选品界面 -> 我发布的接龙」
+            good, new_id, name, err = core.open_one_group(cfg, aid, dry_run=False)
+            if not good and ("模板" in str(err) or "5830" in str(err)):
+                say(f"ℹ️ 选品跟团未成({err})，尝试回退帮卖方式(Q.open_child)")
+                good_c, new_id_c, name_c, err_c = Q.open_child(cfg, aid, phone, dry_run=False)
+                if good_c:
+                    good, new_id, name, err = good_c, new_id_c, name_c or name, ""
         except Exception as e:
-            try:
-                say(f"ℹ️ open_child 异常({e})，尝试回退到主入口跟团方式(core.open_one_group)")
-                good2, new_id2, name2, err2 = core.open_one_group(cfg, aid, dry_run=False)
-                if good2:
-                    good, new_id, name, err = good2, new_id2, name2 or it.get("name"), ""
-                else:
-                    good, new_id, name, err = False, None, it.get("name"), f"异常:{e}；跟团回退: {err2}"
-            except Exception as e2:
-                good, new_id, name, err = False, None, it["name"], f"异常:{e}；跟团异常: {e2}"
+            good, new_id, name, err = False, None, it.get("name"), f"异常: {e}"
         if good:
             it["status"], it["newActId"] = "opened", new_id
             it["note"], it["doneAt"] = "", datetime.now().isoformat(timespec="seconds")
