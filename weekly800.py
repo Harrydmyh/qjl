@@ -924,9 +924,9 @@ def main():
         ]
         if label == "帮卖模式":
             notes += [
-                f"自动执行：这 {len(alive)} 条由「汤团」号（PspU4o9…）按『计划开团时间』自动帮卖开团，"
-                f"每小时一波、条数已均摊。",
-                f"跳过规则：{len(skip_map)} 条在汤团号上已有**在售的同名团**，标『已在售』不重复开（避免同一款挂两个团）。",
+                f"自动执行：这 {len(alive)-len(skip_map)} 条由「汤团」号（PspU4o9…）按『计划开团时间』自动帮卖开团，"
+                f"每天 {HOUR_START}:00-{HOUR_END}:00 每小时一波、条数已均摊（每小时 2-3 条）。",
+                f"跳过规则：{len(skip_map)} 条在汤团号上已有**在售的同名团**，标『已在售，跳过』不重复开（避免同一款挂两个团）。",
                 "停止方法：在项目目录建一个 data/open_plan_STOP 空文件，下一次整点检查就会停。",
             ]
         n = write_xlsx(path, f"{args.min}单以上{label[:2]}", days, dates, prev_map, notes,
