@@ -20,6 +20,12 @@
   .between{justify-content:space-between}
   .dot{width:10px;height:10px;border-radius:50%;background:#bbb;flex:0 0 auto}
   .dot.on{background:var(--green2);box-shadow:0 0 0 4px rgba(43,138,93,.15)}
+  .dot.busy{animation:pulse 1.2s infinite}
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(43,138,93,.55)}
+    70%{box-shadow:0 0 0 8px rgba(43,138,93,0)}
+    100%{box-shadow:0 0 0 0 rgba(43,138,93,0)}
+  }
   .dot.off{background:#b0b8b3}
   .dot.err{background:var(--red);box-shadow:0 0 0 4px rgba(192,57,43,.15)}
   .big{font-size:17px;font-weight:600}
@@ -280,13 +286,21 @@ function render(s){
   today = p.today || localToday;
 
   // ── 状态灯
-  $('dot').className = 'dot ' + (s.account && s.account.error ? 'err' : (s.enabled ? 'on' : 'off'));
-  $('stateText').textContent = s.enabled ? '正在自动开团' : '已停止（清单还在，随时可启动）';
-  const bits = [];
-  if (s.stopFile) bits.push('有 STOP 文件');
-  if (!s.threadAlive) bits.push('调度线程未运行');
-  if (s.lastRunAt) bits.push('上次执行 ' + fmtTime(s.lastRunAt));
-  $('stateHint').textContent = bits.join(' · ');
+  const cur = s.current;
+  $('dot').className = 'dot ' + (s.account && s.account.error ? 'err'
+                      : cur ? 'on busy' : (s.enabled ? 'on' : 'off'));
+  if (cur) {
+    const sec = Math.max(0, Math.round((new Date(s.serverTime || Date.now()) - new Date(cur.startedAt)) / 1000));
+    $('stateText').textContent = '正在开团…';
+    $('stateHint').textContent = `${cur.name || ''} · ${cur.supplier || ''} · 已 ${sec} 秒`;
+  } else {
+    $('stateText').textContent = s.enabled ? '自动开团中（等下一个时间点）' : '已停止（清单还在，随时可启动）';
+    const bits = [];
+    if (s.stopFile) bits.push('有 STOP 文件');
+    if (!s.threadAlive) bits.push('调度线程未运行');
+    if (s.lastRunAt) bits.push('上次执行 ' + fmtTime(s.lastRunAt));
+    $('stateHint').textContent = bits.join(' · ');
+  }
   $('btnToggle').textContent = s.enabled ? '停止' : '启动';
   $('btnToggle').className = s.enabled ? 'danger' : 'primary';
 
@@ -433,23 +447,29 @@ async function renderPlan(p){
       <td class="t">${x.orders || ''}</td>
     </tr>`;
   }).join('');
+  const oldWrap = $('planBox').querySelector('.tblwrap');
+  const keepTop = oldWrap ? oldWrap.scrollTop : 0;   // 重绘后别把滚动位置顶回去
   $('planBox').innerHTML = `<div class="tblwrap"><table>
     <thead><tr><th style="width:58px">时间</th><th style="width:76px">品类</th><th>品名</th>
     <th style="width:130px">供货商</th><th style="width:62px">状态</th><th style="width:64px">订单</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
+  const newWrap = $('planBox').querySelector('.tblwrap');
+  if (newWrap) newWrap.scrollTop = keepTop;
 }
 
 let busy = false;
 async function refresh(){
   if (busy) return;
+  let s;
   try {
-    const s = await api('/api/auto/status');
-    render(s);
+    s = await api('/api/auto/status');
   } catch(e) {
     $('dot').className = 'dot err';
     $('stateText').textContent = '读不到状态';
     $('stateHint').textContent = e.message;
+    return;
   }
+  try { render(s); } catch(e) { console.error('render error', e); }
 }
 
 let armAt = 0;
@@ -464,9 +484,10 @@ $('btnToggle').onclick = async () => {
   }
   busy = true;
   try {
-    await api('/api/auto/toggle', {method:'POST', body: JSON.stringify({enabled: !enabled})});
-    showToast(enabled ? '已停止' : '已启动，到点会自动开');
+    const r = await api('/api/auto/toggle', {method:'POST', body: JSON.stringify({enabled: !enabled})});
     await refresh();
+    if (r && r.warn) showToast('⚠️ ' + r.warn);
+    else showToast(enabled ? '已停止' : '已启动，到下一个时间点会自动开');
   } catch(e){ showToast(e.message); }
   busy = false;
 };
@@ -509,7 +530,15 @@ $('btnSave').onclick = async () => {
 };
 
 refresh();
-setInterval(refresh, 10000);
+let pollTimer = null;
+function schedule(){
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    await refresh();
+    schedule();
+  }, enabled ? 4000 : 10000);   // 开团中 4 秒刷一次，能及时看到「执行中」
+}
+refresh().then(schedule);
 </script>
 </body>
 </html>

@@ -35,6 +35,7 @@ _thread = None
 _running = False
 _last_tick = None
 _last_idle = None
+_current = None                  # 正在开的那一条（页面用来显示「执行中」）
 
 
 # ---------------------------------------------------------------- 状态
@@ -332,6 +333,16 @@ def tick(force=False):
                                 "why": f"落后 {len(due)} 条待补，补课间隔 {MIN_CATCHUP} 分钟（距上次 {mins:.0f} 分钟）"}
 
         buf = io.StringIO()
+        global _current
+        _current = {
+            "actId": pick.get("actId"),
+            "name": pick.get("name") or "",
+            "supplier": pick.get("supplier") or "",
+            "cat": pick.get("cat") or "",
+            "time": pick.get("time") or "",
+            "date": pick.get("date") or "",
+            "startedAt": datetime.now().isoformat(timespec="seconds"),
+        }
         with contextlib.redirect_stdout(buf):
             code = AUT.run(now, dry=0, limit=1, only=pick.get("actId"))
         out = buf.getvalue().strip()
@@ -355,6 +366,7 @@ def tick(force=False):
         save_state(s)
         return {"acted": kind != "idle", "kind": kind, "code": code, "out": out}
     finally:
+        _current = None
         try:
             fcntl.flock(lockf, fcntl.LOCK_UN)
             lockf.close()
@@ -396,6 +408,7 @@ def status():
         "window": [HOUR_START, HOUR_END],
         "lastTick": _last_tick,
         "lastIdle": _last_idle,
+        "current": _current,
         "lastRunAt": st.get("lastRunAt"),
         "lastResult": st.get("lastResult"),
         "toggledAt": st.get("toggledAt"),

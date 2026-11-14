@@ -730,7 +730,19 @@ class AutoToggle(BaseModel):
 async def auto_toggle(body: AutoToggle):
     import auto_runner
     st = auto_runner.set_enabled(body.enabled)
-    return {"ok": True, "enabled": st.get("enabled")}
+    # 启动时顺手体检一次：token 过期/没配号，这时候就该说，而不是等到时间点才发现开不出来
+    warn = None
+    if body.enabled:
+        try:
+            a = auto_runner.account_info()
+            ti = a.get("tokenInfo") or {}
+            if not a.get("ghId"):
+                warn = "还没配置开团账号的 ghId，启动了也开不出来"
+            elif not ti.get("valid"):
+                warn = f"token 已过期（{ti.get('exp_str')}），先换 token 再启动才有效"
+        except Exception as e:
+            warn = f"账号检查失败：{type(e).__name__}: {e}"
+    return {"ok": True, "enabled": st.get("enabled"), "warn": warn}
 
 
 @app.post("/api/auto/run")
