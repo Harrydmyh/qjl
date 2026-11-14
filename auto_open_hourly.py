@@ -37,7 +37,7 @@ PLAN = os.path.join(DATA, "open_plan_tang.json")
 LOG = os.path.join(DATA, "open_plan_log.jsonl")
 LOCK = os.path.join(DATA, "open_plan.lock")
 STOP = os.path.join(DATA, "open_plan_STOP")
-TANG_GH = "PsHHJN8_bsMtSbS_b09f0984"
+TANG_GH = "PspU4o9_bsxkBH0_6c6cef00"
 ACCOUNT_FILE = os.path.join(DATA, "open_account.json")
 
 

@@ -37,7 +37,7 @@ import core
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(ROOT, "data")
 OUT_DIR = os.path.join(ROOT, "周报")
-TANG_GH = "PsHHJN8_bsMtSbS_b09f0984"
+TANG_GH = "PspU4o9_bsxkBH0_6c6cef00"
 CACHE_CHILD = os.path.join(DATA, "open_check_child.json")
 CACHE_OWN = os.path.join(DATA, "tang_own_acts.json")
 RESULT = os.path.join(DATA, "open_check.json")
