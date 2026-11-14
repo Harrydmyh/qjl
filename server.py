@@ -135,8 +135,48 @@ async def access_gate(request: Request, call_next):
              or request.headers.get("X-Access-Key")
              or "")
     if given != key:
+        accept = request.headers.get("accept", "")
+        if "text/html" in accept or request.url.path in ("/", "/auto"):
+            html = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>群接龙助手 · 验证密钥</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f6f8f7; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+  .card { background: #fff; padding: 28px 24px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); max-width: 360px; width: 100%; text-align: center; }
+  h2 { margin: 0 0 8px; font-size: 19px; color: #192620; }
+  p { margin: 0 0 20px; font-size: 13px; color: #64746b; line-height: 1.5; }
+  input { width: 100%; padding: 12px; font-size: 15px; border: 1px solid #d2dcd5; border-radius: 8px; box-sizing: border-box; margin-bottom: 14px; outline: none; }
+  input:focus { border-color: #1f6f4a; }
+  button { width: 100%; padding: 12px; font-size: 15px; font-weight: 600; color: #fff; background: #1f6f4a; border: none; border-radius: 8px; cursor: pointer; }
+  button:active { background: #18583a; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>🔐 访问受限</h2>
+  <p>该系统需输入访问密钥方可使用。<br>请输入密钥后点击进入：</p>
+  <form onsubmit="event.preventDefault(); submitKey();">
+    <input id="keyInput" type="text" placeholder="请输入访问密钥 (Access Key)" autofocus />
+    <button type="submit">进入系统</button>
+  </form>
+</div>
+<script>
+function submitKey() {
+  const val = document.getElementById('keyInput').value.trim();
+  if (!val) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set('k', val);
+  window.location.href = url.toString();
+}
+</script>
+</body>
+</html>"""
+            return HTMLResponse(html, status_code=401)
         return JSONResponse(
-            {"detail": "需要访问密钥。请在网址后面加 ?k=你的密钥 再打开。"},
+            {"detail": "需要访问密钥。请在网址后面加上 ?k=你的密钥 再打开。"},
             status_code=401)
     resp = await call_next(request)
     if request.query_params.get("k") == key:
