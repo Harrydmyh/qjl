@@ -1,10 +1,11 @@
 # 项目长期注意事项（开团助手 / 群接龙）
 
 ## 运行
-- 启动 `python3 server.py`（系统 Python，3.13 没 fastapi），端口 8765。
+- 启动 `/opt/homebrew/bin/python3 server.py`，端口 8765。**只有 Homebrew 的 python3 装了 fastapi** —— PATH 里默认的 workbuddy 3.13 和 /usr/bin/python3 都没有，直接 `python3 server.py` 会 ModuleNotFoundError。（2026-11-14 又踩一次）
 - 页面每次从磁盘读 → **改前端不重启，改 core/server 必须重启**。后台起只能 start_new_session=True。
 - 停服务别用 `pkill -f server.py`（误杀工具自身）：`lsof -nP -iTCP:8765 -sTCP:LISTEN -t | xargs kill`。
 - 用户报 Failed to fetch → 先 lsof，没有=服务没起。常驻/launchd 已全删。
+- **自动开团已内置到服务**（2026-11-14）：`/auto` 页面 + `auto_runner.py` 后台线程（20 秒 tick，默认关，开关在 `data/auto_state.json`）。开团账号独立存 `data/open_account.json`，不动 config.json。改 server/auto_runner 必须重启服务。
 - 当服务器必须插电；合盖必睡 → `sudo pmset -a disablesleep 1`（恢复 0）。
 
 ## 工作流（用户偏好）
@@ -24,7 +25,9 @@
 
 ## 关键领域规则
 - `followEarning` 非 null = 能开团；null = 不能开。
-- 帮卖两套模式，工具只做「跟团」：跟团 `for_follow/{actId}/{ghId}`+`/act/release`；子团 `for_leader/…`+`help_sale_child/act/release`，activityType **10→5830，150/160/210 可开**。新号 uid155475458 只能走子团，候选来自 `ghome-feed/act_recommend/get_recommend_acts`。
+- 帮卖两套模式：跟团 `for_follow/{actId}/{ghId}`+`/act/release`（core.open_one_group）；**子团 `for_leader/…`+`help_sale_child/act/release`（qjl_auto.open_child，已实测可用）**，activityType **10→5830，150/160/210 可开**。新号 uid155475458 只能走子团，候选来自 `ghome-feed/act_recommend/get_recommend_acts`。
+- **两个汤团号（同一 token 都能访问）**：`PspU4o9_bsxkBH0_6c6cef00`=汤团（用来开团）、`PsHHJN8_bsMtSbS_b09f0984`=汤团²（data/config.json 里配的，拉帮卖广场数据用它）。用户说"汤团"指的是 PspU4o9。
+- **判"这号开过没"别只看 isFollow**：帮卖 234 条里 202 条 isFollow=True，但主页真正还有在售同名团的只有 56 条。正确判据 = 拉自己主页 feed（`query_ghome_feed_back_v2`，ghType=20）按**归一化活动名前 40 字匹配 + activityStatus=10 + pauseSw=5**。脚本 check_mine.py / verify_bs_tang.py。
 - **跟团/帮卖只能按 `activityType` 分**（10=跟团、150/160/210=帮卖子团），**不能按 ghType**：ghType 10=品牌号(自营，朱雅琪/新物商店/淼妈家=跟团)、20=团长号(明星团长露西Grocery/明星品牌馆/绿头像=帮卖)、105=供货品牌(骄傲美食/禧牛/YS供应链=帮卖)。详情接口 `upStreamType` 恒 None，不可用。
   请求体两坑：activitySettingsParam 用成功样本补齐（缺 showAllGroupOrder 报 5259）；手机号带 `?ghId=` 打 get_user_input → inputMap["210"]。
 - open_log 必须同时写 goodsIds+goodsNames；commissionPercent 绝不能为 null（整团佣金清零）；拉取别发 firstCategoryIdList。
@@ -36,6 +39,15 @@
 - 看不到自己开的团 →「标记已开」/api/log/mark 补录；isFollow→alreadyFollowed 默认不勾选。
 - 同款判定三条判据：goodsId 交集；全部规格商品名同款（匹配名占少方≥50%）；多规格价格指纹（Dice≥0.45）。阈值 0.45，调参必跑回归。
 - 「同款 5 天内已开」= 不丢弃、可见、不开团；图片相似度暂不可用。
+- **供货商黑名单（永久）**：`data/blacklist_suppliers.json` 的 `suppliers` 里名字**子串命中 ghName** 就整家不开团（2026-11-14 用户点名：简小姐、悦宝）。weekly800.py 过滤在门槛后/季节前，单列「黑名单剔除」页；auto_open_hourly 也拦一道。加人只改这个 json，不要写死在别处。
+- **开团查重（2026-11-14 定稿）**：5 天内开过同款不开 + 两份表之间重复只开一条。证据源 = `list_gh_child_activities(pactId=母团, ghId=汤团)` 的子团 createTime，+ 主页近 5 天团名。**不能按「有在售子团」判**——该号每 7~20 天就把同一母团重开一次，620 条里 371 条都有在售子团，按在售判会一条都开不出来。名字匹配必须用 **actName**（活动标题），不能用 goodsName：两者差很远。`dedup_open.py` 出结论，`auto_open_hourly.precheck()` 开前现场复核。
+
+## 周报排期 + 自动开团（2026-11-14）
+- 出表 `weekly800.py`（--offline 只用当日详情缓存）；排期 `split_seven`：只在"要开的"里 7 天均分，贪心塞进「同类最少+同家最少」那天，日内按 食品→日用→服饰美妆→杂货 轮转且相邻不同供货商。
+- 四分类 `classify_cat.py`（DeepSeek，缓存 data/cat_cache.json；1食品/2日用/3服饰美妆/4杂货，判不出归 4）。
+- **表里的日期是"今天起 7 天"**（旧 next_week_dates 排下周，周六出的表当天用不上，已改）。
+- 执行：`auto_open_hourly.py` 读 `data/open_plan_tang.json`（weekly800 每次出表自动重写，保留已 opened 状态）；7-22 点、每波最多 4 条、条间随机 20-50s；`data/open_plan_STOP` 停；token 过期自停。
+- 对应 automation：汤团帮卖·每小时自动开团（FREQ=HOURLY）。**rrule 的 BYHOUR 只能单值**，所以不能"每天 7-22 每小时"，只能整点跑 + 脚本内判窗口。
 
 ## token
 - JWT HS512 能读能验、签不出续不了；无 refresh；**48 小时**到期重抓。微信登录不能脚本化（一次性 code）→ 上限是 mitmproxy 捞 token 写回配置。
