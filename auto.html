@@ -585,7 +585,10 @@ async function renderPlan(p){
       <td style="color:var(--dim);">${esc(x.cat || '')}</td>
       <td class="nm" title="${esc(x.name || '')}">${esc(x.name || '')}</td>
       <td style="color:var(--dim);">${esc(x.supplier || '')}</td>
-      <td><span class="tag ${st[1]}">${st[0]}</span></td>
+      <td>
+        <span class="tag ${st[1]}">${st[0]}</span>
+        ${x.note ? `<div style="font-size:11px;color:var(--dim);margin-top:2px;max-width:160px;line-height:1.2;word-break:break-all;" title="${esc(x.note)}">${esc(x.note)}</div>` : ''}
+      </td>
       <td class="t">${x.orders || ''}</td>
     </tr>`;
   }).join('');
@@ -594,7 +597,7 @@ async function renderPlan(p){
   const keepTop = oldWrap ? oldWrap.scrollTop : 0;
   $('planBox').innerHTML = `<div class="tblwrap"><table>
     <thead><tr><th style="width:55px">时间</th><th style="width:70px">品类</th><th>商品名称</th>
-    <th style="width:120px">供货商</th><th style="width:55px">状态</th><th style="width:55px">订单</th></tr></thead>
+    <th style="width:120px">供货商</th><th style="width:110px">状态</th><th style="width:55px">订单</th></tr></thead>
     <tbody>${rows}</tbody></table></div>`;
   const newWrap = $('planBox').querySelector('.tblwrap');
   if (newWrap) newWrap.scrollTop = keepTop;

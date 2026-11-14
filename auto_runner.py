@@ -111,6 +111,7 @@ def _brief(x):
         "supplier": x.get("supplier") or "",
         "name": x.get("name") or "",
         "status": x.get("status") or "",
+        "note": x.get("note") or "",
         "actId": x.get("actId"),
         "orders": x.get("orders") or 0,
     }
