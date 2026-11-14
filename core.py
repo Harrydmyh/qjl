@@ -725,8 +725,15 @@ def _fetch_details_batch(session, headers, gh_id, act_ids):
     return out
 
 
-def _post_detail_batch(session, headers, gh_id, act_ids):
-    """发一次批量详情请求（带重试）"""
+def _post_detail_batch(session, headers, gh_id, act_ids, fromv=8):
+    """发一次批量详情请求（带重试）
+
+    fromv：extraParam.from，代表"从哪个入口看这些活动"。
+    ⚠️ 服务端按入口做可见性过滤：实测同一 actId 传 from=6 返回空、
+    传 from=8 能拿到完整详情（2026-11-14：家乡美/屿憩/淘天下等 20 家团长
+    的长期团全被 from=6 挡掉，误判成"已下架"）。
+    from=8 覆盖 from=6 能查到的全部样本，需要完整时用 8。
+    """
     for attempt in range(3):
         try:
             resp = session.post(
@@ -739,7 +746,7 @@ def _post_detail_batch(session, headers, gh_id, act_ids):
                         "filterSamePact": False, "filterBlackGh": False,
                         "filterOffShelvesAct": False, "filterStartGroupAct": True,
                     }),
-                    "extraParam": json.dumps({"from": 6}),
+                    "extraParam": json.dumps({"from": fromv}),
                 },
                 headers=headers, timeout=15,
             )
