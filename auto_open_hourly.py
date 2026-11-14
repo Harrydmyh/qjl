@@ -29,6 +29,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import core
 import qjl_auto as Q
+import dedup_open as D
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(ROOT, "data")
@@ -85,6 +86,93 @@ def already_live(cfg, headers, act_id, names_by_act):
     return False  # 轻量版不做逐条复查，靠 bs234_mine_check 预判；见 --recheck
 
 
+# ---------------------------------------------------------------- 开前实时查重
+_OWN = None
+_STATIC = None
+
+
+def _static_check():
+    """dedup_open.py 的静态查重结论（每轮生成周报时刷新）。"""
+    global _STATIC
+    if _STATIC is None:
+        try:
+            _STATIC = json.load(open(os.path.join(DATA, "open_check.json")))
+        except Exception:
+            _STATIC = {}
+    return _STATIC
+
+
+def own_acts(max_age=1800):
+    """汤团号主页团（含创建时间），半小时内复用本地缓存。"""
+    global _OWN
+    if _OWN is not None:
+        return _OWN
+    p = os.path.join(DATA, "tang_own_acts.json")
+    try:
+        fresh = time.time() - os.path.getmtime(p) < max_age
+    except OSError:
+        fresh = False
+    if fresh:
+        try:
+            _OWN = json.load(open(p))
+            return _OWN
+        except Exception:
+            pass
+    try:
+        _OWN = D.refresh_own()
+    except Exception as e:
+        say(f"⚠️ 拉主页团失败（{e}），本轮只按子团记录判重")
+        _OWN = []
+    return _OWN
+
+
+def precheck(cfg, headers, it):
+    """这条能不能开。返回 (ok, 原因, 证据)。
+
+    两道：
+      1. 子团记录 —— 汤团号给这个母团开过的子团，5 天内创建过就不开（最硬）；
+      2. 主页团名 —— 近 5 天创建的团里有没有同名的（跟团不产生子团记录，只能按名字认）。
+    主页那 2000 多个团只在第 1 道没命中时才拉，省时间。
+    """
+    aid = int(it["actId"])
+    now = int(time.time() * 1000)
+    cutoff = now - D.WINDOW_DAYS * 86400000
+
+    # 「重复」是永久判据（同一款不该挂两个团），静态结论直接兜住；
+    # 「5天内已开」是滚动的，交给下面实时查。
+    st = _static_check()
+    v = st.get(str(aid)) or {}
+    if v and not v.get("open") and v.get("why") == "重复":
+        return False, "重复", v.get("evidence") or ""
+
+    s = core.make_session()
+    try:
+        r = s.post("https://apipro.qunjielong.com/activity-accessory/gh_activity/list_gh_child_activities",
+                   json={"ghId": TANG_GH, "pactId": aid, "page": 1, "pageSize": 50},
+                   headers=headers, timeout=15)
+        d = (r.json() or {}).get("data")
+        kids = d if isinstance(d, list) else ((d or {}).get("list") or (d or {}).get("records") or [])
+    except Exception:
+        kids = []
+    young = [k for k in kids if (k.get("createTime") or 0) >= cutoff]
+    if young:
+        k = max(young, key=lambda x: x.get("createTime") or 0)
+        return False, "5天内已开", f"子团 {k.get('actId')}（{datetime.fromtimestamp((k.get('createTime') or 0)/1000):%m-%d %H:%M}）"
+
+    # 注意：**不能**把「有在售子团」当拦截。这个号本来就把同一个母团每 7~20 天
+    # 重开一次，371/620 条都挂着在售子团，按在售判会一条都开不出来。
+    own = own_acts()
+    # 主页团名是「活动标题」，跟商品名差得远，优先用 actName 比；两个都比一遍
+    cands = [x for x in (it.get("actName"), it.get("name")) if x]
+    for nm in cands:
+        hit = next((a for a in own
+                    if (a.get("create") or 0) >= cutoff and D.name_same(nm, a.get("name") or "")), None)
+        if hit:
+            return False, "5天内已开", \
+                f"主页团 {hit['actId']}（{datetime.fromtimestamp((hit.get('create') or 0)/1000):%m-%d %H:%M}）"
+    return True, "", ""
+
+
 def classify_err(msg):
     m = str(msg or "")
     if "5830" in m or "帮卖权限" in m:
@@ -111,10 +199,10 @@ def run(now, dry=0, limit=MAX_PER_RUN):
         say(f"本小时无待开（剩余 {pend_all} 条）")
         return 0
 
-    batch = todo[:limit]
+    batch = todo[: limit * 3]      # 多取一些：被查重挡掉的号不占本波名额
     if dry:
-        say(f"[dry] 现在该开 {len(todo)} 条，本次先开 {len(batch)}:")
-        for it in batch:
+        say(f"[dry] 现在该开 {len(todo)} 条，本次先开 {limit} 条（候选 {len(batch)}）:")
+        for it in batch[:limit]:
             say(f"  {it['date']} {it['slot']:02d}:00 [{it['cat']}] {it['supplier'][:8]} {it['name'][:26]}")
         return 0
 
@@ -127,9 +215,24 @@ def run(now, dry=0, limit=MAX_PER_RUN):
     if not phone:
         say("⚠️ 没取到团长手机号，帮卖子团可能开不出来")
 
-    ok = fail = 0
+    headers = core.make_headers(cfg)
+    ok = fail = skipped = 0
     for i, it in enumerate(batch):
+        if ok + fail >= limit:
+            break
         aid = int(it["actId"])
+        allowed, why, ev = precheck(cfg, headers, it)
+        if not allowed:
+            it["status"] = "skip_recent"
+            it["note"] = f"{why}：{ev}"
+            it["doneAt"] = datetime.now().isoformat(timespec="seconds")
+            plan["updatedAt"] = it["doneAt"]
+            save_plan(plan)
+            append_log({"at": it["doneAt"], "actId": aid, "ok": False, "newActId": None,
+                        "status": "skip_recent", "note": it["note"]})
+            skipped += 1
+            say(f"⏭ 不开 {it['supplier'][:8]} | {it['name'][:22]} → {why}（{ev}）")
+            continue
         try:
             good, new_id, name, err = Q.open_child(cfg, aid, phone, dry_run=False)
         except Exception as e:
@@ -150,12 +253,12 @@ def run(now, dry=0, limit=MAX_PER_RUN):
         append_log({"at": datetime.now().isoformat(timespec="seconds"), "actId": aid,
                     "ok": bool(good), "newActId": new_id if good else None,
                     "status": it["status"], "note": it["note"]})
-        if i < len(batch) - 1:
+        if ok + fail < limit:
             w = random.uniform(20, 50)
             time.sleep(w)
 
     left = sum(1 for x in plan["items"] if x.get("status") == "pending")
-    say(f"本波完成：成功 {ok} / 失败 {fail}；今日剩余待开 {left} 条")
+    say(f"本波完成：成功 {ok} / 失败 {fail} / 查重跳过 {skipped}；剩余待开 {left} 条")
     return 0
 
 

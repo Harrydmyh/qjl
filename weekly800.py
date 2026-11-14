@@ -573,7 +573,7 @@ def day_label(d):
 
 # ---------------------------------------------------------------- 7. 写表
 def write_xlsx(path, title, days, dates, prev_map, note_lines, min_orders, dead=None,
-               season_dropped=None, slots=None, skip_map=None):
+               season_dropped=None, slots=None, skip_map=None, idle_label="待开", done_map=None):
     import openpyxl
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     from openpyxl.utils import get_column_letter
@@ -605,7 +605,8 @@ def write_xlsx(path, title, days, dates, prev_map, note_lines, min_orders, dead=
                 delta = "新上榜"
             hour = (slots[di][ii] if slots and ii < len(slots[di]) else None)
             when = f"{dates[di]:%m-%d} {hour:02d}:00" if hour else ""
-            st = (skip_map or {}).get(str(r["actId"]), "")
+            st = (done_map or {}).get(str(r["actId"])) or \
+                 (skip_map or {}).get(str(r["actId"])) or idle_label
             ws.append([n, day_label(dates[di]), f"{dates[di]:%m-%d}",
                        r["goodsName"] or r["actName"][:60],
                        link, r["ghName"], kind_label(r),
@@ -623,8 +624,10 @@ def write_xlsx(path, title, days, dates, prev_map, note_lines, min_orders, dead=
             ws.cell(row=row, column=5).font = Font(color="0B5FFF", size=9)
             ws.cell(row=row, column=4).alignment = Alignment(wrap_text=False)
             ws.cell(row=row, column=9).number_format = "#,##0"
-            if st:
-                ws.cell(row=row, column=13).font = Font(color="C00000", size=10)
+            if str(r["actId"]) in (skip_map or {}) or str(r["actId"]) in (done_map or {}):
+                cell = ws.cell(row=row, column=13)
+                cell.font = Font(color="1F6F4A" if str(r["actId"]) in (done_map or {}) else "C00000",
+                                 size=10, bold=True)
     widths = [6, 8, 8, 60, 34, 18, 12, 10, 10, 12, 10, 14, 16]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
@@ -719,18 +722,25 @@ def tang_detail():
 
 
 def load_skip_map():
-    """已有在售同名团 → 不重复开。
+    """开团前查重的结果（dedup_open.py 产出）→ {actId: 短原因}。
 
-    202/234 条在这号上 isFollow=True（平台记录里早就跟过），但真正还能看到
-    在售同名团的只有 50 多条。重复开会把同一个品挂成两个团，所以这里以
-    「主页是否存在同名且在售的团」为准。
+    规则（2026-11-14 用户口径）：
+      · 汤团号上 5 天内开过同款 → 不开；
+      · 两份表之间重复 → 只留订单高的一条，其余不开。
+    以前按「主页有在售同名团就跳过」是错的：这个号本来就把同一个母团每 7~20 天
+    重开一次，371/620 条都挂着在售子团，按在售判会一条都开不出来。
     """
-    p = os.path.join(DATA, "bs234_mine_check.json")
+    p = os.path.join(DATA, "open_check.json")
     try:
         chk = json.load(open(p))
     except Exception:
         return {}
-    return {k: "已在售，跳过" for k, v in chk.items() if v.get("live")}
+    out = {}
+    for k, v in chk.items():
+        if v.get("open"):
+            continue
+        out[k] = "重复，不开" if v.get("why") == "重复" else "5天内已开"
+    return out
 
 
 def export_plan(days, dates, slots, skip_map, detail=None):
@@ -753,17 +763,18 @@ def export_plan(days, dates, slots, skip_map, detail=None):
             hour = slots[di][ii] if ii < len(slots[di]) else HOUR_END
             key = str(r["actId"])
             prev = old.get(key) or {}
-            done = prev.get("status") in ("opened", "failed", "skip_live", "gone")
+            done = prev.get("status") in ("opened", "failed", "gone")
             items.append({
                 "actId": r["actId"],
                 "name": (r["goodsName"] or r["actName"])[:60],
+                "actName": r["actName"][:120],
                 "supplier": r["ghName"],
                 "cat": classify_cat.CAT_NAME.get(r.get("cat", 4), "杂货"),
                 "orders": r["orders"],
                 "date": dates[di].isoformat(),
                 "slot": hour,
                 "status": prev.get("status") if done else
-                          ("skip_live" if key in skip_map else "pending"),
+                          ("skip_recent" if key in skip_map else "pending"),
                 "newActId": prev.get("newActId"),
                 "note": prev.get("note") or skip_map.get(key, ""),
                 "doneAt": prev.get("doneAt"),
@@ -886,6 +897,22 @@ def main():
         print(f"[link] 短链生成跳过: {e}")
 
     out = []
+    skip_all = load_skip_map()          # 两份表共用一套查重结果
+    if skip_all:
+        print(f"[skip] 查重跳过 {len(skip_all)} 条（5天内已开 / 重复）")
+    # 已执行的（帮卖自动开团）→ 表里显示「已开」
+    done_map = {}
+    try:
+        blob = json.load(open(PLAN_PATH))
+        for x in blob.get("items", []):
+            if x.get("status") == "opened":
+                done_map[str(x["actId"])] = "已开"
+            elif x.get("status") in ("failed", "gone"):
+                done_map[str(x["actId"])] = "开团失败"
+        if done_map:
+            print(f"[done] 已执行 {len(done_map)} 条")
+    except Exception:
+        pass
     for label, group in (("跟团模式", fu), ("帮卖模式", bs)):
         d = dedup(group)
         print(f"[dedup] {label}: {len(group)} → {len(d)}")
@@ -901,7 +928,7 @@ def main():
             else:
                 dead.append(r)
         print(f"[active] {label}: 有变动 {len(alive)-len(fresh)} / 新上榜 {len(fresh)} / 零变化剔除 {len(dead)}")
-        skip_map = {} if label == "跟团模式" else load_skip_map()
+        skip_map = {k: v for k, v in skip_all.items() if k in {str(r["actId"]) for r in alive}}
         if skip_map:
             ex = [r for r in alive if str(r["actId"]) not in skip_map]
             sk = [r for r in alive if str(r["actId"]) in skip_map]
@@ -911,6 +938,11 @@ def main():
             days = split_seven(alive)
         slots = build_slots(days, dates, skip_map)
         path = os.path.join(OUT_DIR, f"汤团_{label}_{args.min}单以上_{today}.xlsx")
+        n_new = sum(1 for v in skip_map.values() if v.startswith("5天"))
+        n_dup = len(skip_map) - n_new
+        dm = done_map if label == "帮卖模式" else {}
+        # 已开的里面有些同时又在 skip_map 里（比如今天刚开、5 天内算已开），别重复扣
+        n_todo = len(alive) - len(skip_map) - sum(1 for k in dm if k not in skip_map)
         notes = [
             f"生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M')}",
             f"数据源：群接龙帮卖广场（汤团号），按活动生效时间逐月扫 2019-01 至今，共 {len(pool)} 个活动，逐条单查详情 {len(cache)} 条。",
@@ -918,19 +950,23 @@ def main():
             f"去重：同款（goodsId 交集 / 商品名同款 / 价格指纹）只留订单最高的一条；已去掉 {len(group)-len(d)} 条重复。",
             f"季节过滤：冬季剔除夏款（扇子/凉鞋/无袖/短袖/凉席等），本期剔除 {len(season_map['跟团' if label == '跟团模式' else '帮卖'])} 条（见「季节剔除」页）。",
             f"近期出单：与上一期（{prev_file}）比对订单数，零变化 {len(dead)} 条已剔除；『新上榜』= 上期没有、本期新进池。",
-            f"排期：{len(alive)} 条排到 {dates[0]:%m-%d}~{dates[-1]:%m-%d}（今天起 7 天），"
-            f"每天条数差不超过 1；同一天的团按 食品→日用→服饰美妆→杂货 轮转、相邻两个不同供货商。",
+            f"排期：{len(alive)-len(skip_map)} 条要开的按 7 天均分（{dates[0]:%m-%d}~{dates[-1]:%m-%d}），"
+            f"每天条数差不超过 1；同一天按 食品→日用→服饰美妆→杂货 轮转、相邻两个不同供货商。",
             f"开团时间：每天 {HOUR_START}:00-{HOUR_END}:00 按整点摊开，见『计划开团时间』列。",
+            f"开前查重（两份表一起查）：{n_new} 条『5天内已开』（汤团号 5 天内给同一母团开过子团，或主页近 5 天有同名团）、"
+            f"{n_dup} 条『重复』（与另一份表同款）——共 {len(skip_map)} 条不开，其余 {n_todo} 条才开。",
         ]
         if label == "帮卖模式":
             notes += [
-                f"自动执行：这 {len(alive)-len(skip_map)} 条由「汤团」号（PspU4o9…）按『计划开团时间』自动帮卖开团，"
-                f"每天 {HOUR_START}:00-{HOUR_END}:00 每小时一波、条数已均摊（每小时 2-3 条）。",
-                f"跳过规则：{len(skip_map)} 条在汤团号上已有**在售的同名团**，标『已在售，跳过』不重复开（避免同一款挂两个团）。",
+                f"自动执行：待开 {n_todo} 条（已开 {len(dm)} 条）由「汤团」号（PspU4o9…）"
+                f"按『计划开团时间』自动帮卖开团，每天 {HOUR_START}:00-{HOUR_END}:00 每小时一波、条数已均摊。",
+                "开每一条之前还会现场再查一次「5 天内有没有开过」，有就跳过并记在『执行状态』列，不会靠旧数据硬开。",
                 "停止方法：在项目目录建一个 data/open_plan_STOP 空文件，下一次整点检查就会停。",
             ]
         n = write_xlsx(path, f"{args.min}单以上{label[:2]}", days, dates, prev_map, notes,
                        args.min, dead=dead, slots=slots, skip_map=skip_map,
+                       idle_label="待开" if label == "帮卖模式" else "可开",
+                       done_map=done_map if label == "帮卖模式" else None,
                        season_dropped=season_map["跟团" if label == "跟团模式" else "帮卖"])
         out.append((path, n))
         if label == "帮卖模式":
