@@ -895,6 +895,7 @@ def export_plan(days, dates, slots, skip_map, detail=None):
             key = str(r["actId"])
             prev = old.get(key) or {}
             done = prev.get("status") in ("opened", "failed", "gone")
+            in_skip = key in skip_map
             items.append({
                 "actId": r["actId"],
                 "name": (r["goodsName"] or r["actName"])[:60],
@@ -907,10 +908,10 @@ def export_plan(days, dates, slots, skip_map, detail=None):
                 "slotMin": int(mins),        # 0 点起的分钟数，方便比较
                 "slot": int(mins) // 60,     # 兼容老字段
                 "status": prev.get("status") if done else
-                          ("skip_recent" if key in skip_map else "pending"),
-                "newActId": prev.get("newActId"),
-                "note": prev.get("note") or skip_map.get(key, ""),
-                "doneAt": prev.get("doneAt"),
+                          ("skip_recent" if in_skip else "pending"),
+                "newActId": prev.get("newActId") if done else None,
+                "note": prev.get("note") if done else (skip_map.get(key, "") if in_skip else ""),
+                "doneAt": prev.get("doneAt") if done else None,
             })
     blob = {
         "account": "汤团",

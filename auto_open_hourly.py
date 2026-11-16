@@ -248,16 +248,18 @@ def precheck(cfg, headers, it):
     """这条能不能开。返回 (ok, 原因, 证据)。
 
     两道：
-      1. 子团记录 —— 该号给这个母团开过的子团，5 天内创建过就不开（最硬）；
-      2. 主页团名 —— 近 5 天创建的团里有没有同名的（跟团不产生子团记录，只能按名字认）。
+      1. 子团记录 —— 该号给这个母团开过的子团，当前开团这个团时间的 5 天前之内创建过就不开（最硬）；
+      2. 主页团名 —— 当前开团这个团时间的 5 天前之内创建的团里有没有同名的（跟团不产生子团记录，只能按名字认）。
     主页团只在第 1 道没命中时才拉，省时间。
     """
     aid = int(it["actId"])
     now = int(time.time() * 1000)
-    cutoff = now - D.WINDOW_DAYS * 86400000
+    target_ms = D.parse_target_ms(it.get("time"), it.get("date"), now)
+    cutoff = min(target_ms, now) - D.WINDOW_DAYS * 86400000
+    check_end = max(target_ms, now)
 
     # 「重复」是永久判据（同一款不该挂两个团），静态结论直接兜住；
-    # 「5天内已开」是滚动的，交给下面实时查。
+    # 「5天内已开」是按当前开团时间动态判定的，交给下面实时查。
     st = _static_check()
     v = st.get(str(aid)) or {}
     if v and not v.get("open") and v.get("why") == "重复":
@@ -273,7 +275,7 @@ def precheck(cfg, headers, it):
         kids = d if isinstance(d, list) else ((d or {}).get("list") or (d or {}).get("records") or [])
     except Exception:
         kids = []
-    young = [k for k in kids if (k.get("createTime") or 0) >= cutoff]
+    young = [k for k in kids if cutoff <= (k.get("createTime") or 0) <= check_end]
     if young:
         k = max(young, key=lambda x: x.get("createTime") or 0)
         return False, "5天内已开", f"子团 {k.get('actId')}（{datetime.fromtimestamp((k.get('createTime') or 0)/1000):%m-%d %H:%M}）"
@@ -283,7 +285,7 @@ def precheck(cfg, headers, it):
     cands = [x for x in (it.get("actName"), it.get("name")) if x]
     for nm in cands:
         hit = next((a for a in own
-                    if (a.get("create") or 0) >= cutoff and D.name_same(nm, a.get("name") or "")), None)
+                    if cutoff <= (a.get("create") or 0) <= check_end and D.name_same(nm, a.get("name") or "")), None)
         if hit:
             return False, "5天内已开", \
                 f"主页团 {hit['actId']}（{datetime.fromtimestamp((hit.get('create') or 0)/1000):%m-%d %H:%M}）"

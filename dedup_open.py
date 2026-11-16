@@ -50,6 +50,7 @@ def say(m):
 
 # ---------------------------------------------------------------- 1. 读两份表
 def load_rows():
+    import glob
     import openpyxl
     l2a = {}
     p_link = os.path.join(DATA, "short_link_cache.json")
@@ -58,8 +59,21 @@ def load_rows():
             l2a = {l: a for a, l in json.load(open(p_link)).items()}
         except Exception:
             pass
-    files = [("跟团", os.path.join(OUT_DIR, "汤团_跟团模式_800单以上_20261114.xlsx")),
-             ("帮卖", os.path.join(OUT_DIR, "汤团_帮卖模式_800单以上_20261114.xlsx"))]
+
+    def find_latest(pattern):
+        matches = glob.glob(os.path.join(OUT_DIR, pattern))
+        return max(matches, key=os.path.getmtime) if matches else None
+
+    files = []
+    gen_f = find_latest("汤团_跟团模式_*单以上_*.xlsx")
+    bang_f = find_latest("汤团_帮卖模式_*单以上_*.xlsx")
+    if gen_f:
+        files.append(("跟团", gen_f))
+    if bang_f:
+        files.append(("帮卖", bang_f))
+    if not files:
+        files = [("跟团", os.path.join(OUT_DIR, "汤团_跟团模式_800单以上_20261114.xlsx")),
+                 ("帮卖", os.path.join(OUT_DIR, "汤团_帮卖模式_800单以上_20261114.xlsx"))]
     out = []
     for label, path in files:
         if not os.path.exists(path):
@@ -262,18 +276,48 @@ def name_same(a, b):
     return False
 
 
+def parse_target_ms(slot, date_str, default_ms=None):
+    """当前开团这个团的计划开团时间戳（ms）。若无排期时间则回退到 default_ms。"""
+    if default_ms is None:
+        default_ms = int(time.time() * 1000)
+    year = datetime.now().year
+    s = str(slot or "").strip()
+    d = str(date_str or "").strip()
+    cands = []
+    if s and s != "None":
+        cands.append(s)
+    if d and d != "None":
+        if s and s != "None" and ":" in s and not ("-" in s or "/" in s):
+            cands.append(f"{d} {s}")
+        cands.append(f"{d} 12:00")
+        cands.append(d)
+
+    for cand in cands:
+        for fmt in ("%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M", "%m-%d %H:%M", "%m/%d %H:%M",
+                    "%Y-%m-%d", "%Y/%m/%d", "%m-%d", "%m/%d"):
+            try:
+                dt = datetime.strptime(cand, fmt)
+                if "%Y" not in fmt:
+                    dt = dt.replace(year=year)
+                return int(dt.timestamp() * 1000)
+            except ValueError:
+                pass
+    return default_ms
+
+
 # ---------------------------------------------------------------- 6. 判定
 def judge(rows, children, own):
     now = int(time.time() * 1000)
-    cutoff = now - WINDOW_DAYS * 86400000
     live_own = [a for a in own if a["status"] == 10 and a.get("pause") == 5]
 
     # ── A. 帮卖：子团记录 ──
-    # 只看「5 天内创建过」。不能拿「有在售子团」判 —— 这个号本来就是把同一个母团
-    # 每 7~20 天重开一次，371/620 条都挂着在售子团，按在售判会一条都开不出来。
+    # 用户要求：按「当前开团这个团时间的 5 天前」有没有开过子团来判定，有开过才跳过；
+    # 之前用报告生成时间的 5 天前会导致排在后半周、早已过冷却期的团被误杀。
     for r in rows:
+        target_ms = parse_target_ms(r.get("slot"), r.get("date"), now)
+        cutoff = target_ms - WINDOW_DAYS * 86400000
         kids = children.get(str(r["actId"])) or []
-        young = [k for k in kids if (k.get("create") or 0) >= cutoff]
+        young = [k for k in kids if cutoff <= (k.get("create") or 0) <= target_ms]
         if young:
             k = max(young, key=lambda x: x.get("create") or 0)
             r["_why"] = "5天内已开"
@@ -281,11 +325,15 @@ def judge(rows, children, own):
             r["_mine"] = k["actId"]
 
     # ── B. 跟团（以及帮卖兜底）：主页团名 ──
-    recent_own = [a for a in own if (a.get("create") or 0) >= cutoff]
+    # 同样按「当前开团这个团时间的 5 天前」主页有没有开过同名团判定
     for r in rows:
         if r.get("_why"):
             continue
-        hit = next((a for a in recent_own if name_same(r.get("actName") or r["name"], a["name"])), None)
+        target_ms = parse_target_ms(r.get("slot"), r.get("date"), now)
+        cutoff = target_ms - WINDOW_DAYS * 86400000
+        hit = next((a for a in own
+                    if cutoff <= (a.get("create") or 0) <= target_ms
+                    and name_same(r.get("actName") or r["name"], a["name"])), None)
         if hit:
             r["_why"] = "5天内已开"
             r["_ev"] = f"主页团 {hit['actId']}（{datetime.fromtimestamp((hit['create'] or 0)/1000):%m-%d %H:%M}）"
