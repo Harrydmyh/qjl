@@ -69,6 +69,13 @@
 - per-act「近 7 天有单」无接口；`get_last_order_by_act_id?actId=`（query 参数）只给累计第 N 单。
 - 详见 2026-11-05.md；脚本 fetch_feed_7d.py + collection_fill.py。
 
+## 汤团「日间集市」每日合集（daily_collection.py，2026-11-21 起）
+- 每天 19:00 建一条 `汤团日间集市M.D`，条数浮动 80~200，封面 6 款必须食品；automation `d343332a`。
+- **商品数据接口** `POST /ghdata-biz/api/ghData/queryPageGhGoodsRank`：`dataType=10` 是今天，`orderField=uv|buyQuantity`，**翻页用 `page`（写 pageNum 无效）**，每页固定 30。销量榜几页就到底＝当天有单商品全量（实测覆盖 147 单 vs 大盘 149）；访问榜只取前 30 页按 35% 截。`dateTag` 传什么都一样，不能用来切日期。
+- **自己开的团查不到「帮卖广场详情」**（query_list_by_act_ids 对自家团返空）；只有 `POST /activity-detail/activity/detail/general_goods {activityId}` 能拿到 goodsId 列表。
+- 主页 feed 的 `actItemDTO.ghId` 恒等于汤团自己（子团都是它开的），不能用来判「谁开的」；`boughtCount` 与 `goodsAllOrderNum` 都不是本团销量，别当今日单量用。
+- 权重：有单 100 > 访问前35% 90 > 补位 10；「今天开的团」只做补位，给高分会把 200 个位置全占满、把真出单的挤掉。
+
 ## 抓包反推
 .chlz=zip（meta/req/res 三个 json、body 已明文）→ 用用户级 skill reverse-engineer-app-capture。
 
