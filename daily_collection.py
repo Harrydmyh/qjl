@@ -2,14 +2,15 @@
 # -*- coding: utf-8 -*-
 """汤团「日间集市」每日选品合集。
 
-每天 19:00 生成一条合集，标题 `汤团日间集市MM.DD`，80~200 条，封面 6 款优先食品。
+每天 19:00 生成一条合集，标题 `汤团日间集市MM.DD`，80~200 条；
+封面 6 款要主图有模特真人（半身/大头照），其中销量优先。
 
 选品口径（用户 2026-11-21 定的五条，晚间那次以 12:30 之后开的链接起算）：
   1. **汤团自己供货的跟团链接（activityType=150 且没有上游供货方）必选**，
      只有这种团能邀请别的团长做二级跟团；
   2. 当天有出订单的商品 → 进；当天访问量排名前 10% 的也进（原 35%，为必选让位下调）；
   3. 当天开的链接、当天有销量的 → 进（补位池从 12:30 之后算）
-  4. 排在最前 6 款优先食品类
+  4. 排在最前 6 款的主图要有模特真人（半身/大头照），其中销量优先、食品次之
   5. 条数 80~200，标题带当天日期
   6. 同款只留一条（按优先级留下更高的那条），三条判据任一命中即算同款：
      · 底层商品库同源：goodsId 或 spuId 有交集
@@ -39,6 +40,8 @@ import difflib
 import json
 import os
 import re
+import subprocess
+import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -55,7 +58,12 @@ TEMPLATE_ID = 2098411                                     # 只为抄 extJson（
 
 MIN_ITEMS, MAX_ITEMS = 80, 200
 UV_TOP_RATIO = 0.10            # 当天访问量前 10%（2026-11-21 由 35% 下调，给必选让位）
-COVER_FOOD = 6                 # 封面 6 款优先食品
+COVER_FOOD = 6                 # 封面 6 款（主图有真人，销量优先）
+COVER_SCAN = 24                # 从前 24 个候选里找主图有真人的
+FACE_MIN_H = 0.075             # 人脸框高 / 图高，≥ 这个算半身照或大头照
+IMG_BASE = "https://res0.shangshi360.com/"
+FACE_SRC = os.path.join(HERE, "tools", "facedet.swift")
+FACE_BIN = os.path.join(HERE, "tools", "facedet")
 DAY_CUTOFF_HM = (12, 30)       # 「当天新开」只从 12:30 之后算（用户 2026-11-21 定）
 REFRESH_HOURS = 12             # 同一个团的商品明细，12 小时内不重复拉
 CACHE_VER = 2                  # 缓存结构版本；升级后自动重拉（v2 才带 spuId 和全部图片）
@@ -526,19 +534,123 @@ def pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms, deduper=None,
     return order[:MAX_ITEMS], src, {**delta, **today_order}
 
 
-def food_first(order, acts):
-    """前 6 款换成食品类；其余顺序不动。"""
+def _ensure_facedet():
+    """编译 tools/facedet（调 macOS 自带的 Vision 做人脸检测），编好就一直复用。"""
+    if os.path.exists(FACE_BIN):
+        return FACE_BIN
+    try:
+        r = subprocess.run(["swiftc", "-O", FACE_SRC, "-o", FACE_BIN],
+                           capture_output=True, timeout=300)
+        if r.returncode != 0:
+            log("人脸检测工具编译失败：", (r.stderr or b"")[:200])
+            return None
+        log("人脸检测工具已编译")
+        return FACE_BIN
+    except Exception as e:
+        log("人脸检测工具编译失败：", e)
+        return None
+
+
+def face_scores(pics):
+    """并发下载主图 → [(人脸数, 最大脸高占比)]，顺序和 pics 一一对应。"""
+    n = len(pics)
+    blank = [(0, 0.0)] * n
+    bin_ = _ensure_facedet()
+    if not bin_ or not n:
+        return blank
+    tmp = tempfile.mkdtemp(prefix="cover_")
+    try:
+        import requests
+        dl = requests.Session()
+        dl.trust_env = False
+
+        def grab(item):
+            i, p = item
+            rel = (p or "").lstrip("/")
+            if not rel:
+                return
+            small = os.path.join(tmp, f"{i}s.jpg")
+            # 走 OSS 缩略图（原图动辄 3MB，缩到 300 宽只有 40KB）
+            for q in ("?x-oss-process=image/resize,w_300", ""):
+                try:
+                    r = dl.get(IMG_BASE + rel + q, timeout=25,
+                               headers={"User-Agent": "Mozilla/5.0"})
+                    if r.status_code == 200 and r.content:
+                        open(small, "wb").write(r.content)
+                        return
+                except Exception:
+                    continue
+
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(grab, enumerate(pics)))
+
+        files = [os.path.join(tmp, f"{i}s.jpg") for i in range(n)]
+        todo = [f for f in files if os.path.exists(f)]
+        if not todo:
+            return blank
+        out = subprocess.run([bin_] + todo, capture_output=True, timeout=180)
+        res = {}
+        for line in (out.stdout or b"").decode("utf-8", "ignore").splitlines():
+            parts = line.split("\t")
+            if len(parts) < 4:
+                continue
+            try:
+                idx = int(os.path.basename(parts[0]).split("s.")[0])
+                res[idx] = (int(parts[1]), float(parts[3]))
+            except Exception:
+                continue
+        return [res.get(i, (0, 0.0)) for i in range(n)]
+    except Exception as e:
+        log("人脸检测失败，封面退回按原顺序取：", e)
+        return blank
+    finally:
+        try:
+            import shutil
+            shutil.rmtree(tmp, ignore_errors=True)
+        except Exception:
+            pass
+
+
+def cover_first(order, acts, sales=None):
+    """把封面 6 款提到最前面：主图要有模特真人（半身/大头照），其中销量优先。
+
+    封面在合集里就是前 6 张图，只能靠调顺序实现。
+    候选取优先级最高的 COVER_SCAN 条，在里面挑「检测到人脸、且脸够大」的，
+    再按今天的单量排（单量一样时食品类优先），取前 6 条。
+    """
+    head = order[:COVER_SCAN]
+    if not head:
+        return order, set()
+    sales = sales or {}
+    pics = [((acts.get(a) or {}).get("pics") or [""])[0] for a in head]
+    scores = face_scores(pics)
+    face_ok = [a for a, (cnt, h) in zip(head, scores) if cnt > 0 and h >= FACE_MIN_H]
+    log(f"封面候选 {len(head)} 个，主图有半身/大头人像 {len(face_ok)} 个")
+    if len(face_ok) < COVER_FOOD:                     # 不够就把脸小一点的补上
+        face_ok += [a for a, (cnt, h) in zip(head, scores)
+                    if a not in face_ok and cnt > 0][:COVER_FOOD - len(face_ok)]
+    if not face_ok:
+        log("没有一张主图有真人，封面保持原顺序")
+        return order, set()
+
+    foods = set()
     try:
         import classify_cat
-        cat = classify_cat.classify([acts[a]["name"] for a in order])
+        cat = classify_cat.classify([acts[a]["name"] for a in face_ok])
+        foods = {a for a in face_ok if cat.get(acts[a]["name"]) == 1}
     except Exception as e:
         log("品类判定跳过：", e)
-        return order, set()
-    foods = [a for a in order if cat.get(acts[a]["name"]) == 1]
-    if not foods:
-        return order, set()
-    head = foods[:COVER_FOOD]
-    return head + [a for a in order if a not in head], set(head)
+
+    face_ok.sort(key=lambda a: (-(sales.get(a) or 0),
+                                0 if a in foods else 1,
+                                -(acts[a].get("view") or 0)))
+    head6 = face_ok[:COVER_FOOD]
+    if len(head6) < COVER_FOOD:                       # 实在不够就按原顺序凑
+        head6 += [a for a in head if a not in head6][:COVER_FOOD - len(head6)]
+    head6 = head6[:COVER_FOOD]
+    log(f"封面 6 款：{len([a for a in head6 if a in foods])} 个食品 / "
+        f"{len([a for a in head6 if a not in foods])} 个非食品")
+    return head6 + [a for a in order if a not in head6], set(head6)
 
 
 def dump_xlsx(payload, path):
@@ -572,7 +684,7 @@ def dump_xlsx(payload, path):
     for line in [
         f"标题：{payload.get('title')}",
         f"总条数：{len(order)} 条（要求 80~200）",
-        f"封面 6 款：{(payload.get('cover') or []) and '前 6 条优先食品'}",
+        f"封面 6 款：主图有真人（半身/大头照），按今天的单量优先挑",
         f"自营跟团必选：{must} 条（自己供货、可邀请团长二级跟团）",
         f"访问量口径：前 {int(UV_TOP_RATIO * 100)}%",
         f"「当天新开」起算：{DAY_CUTOFF_HM[0]}:{DAY_CUTOFF_HM[1]:02d}",
@@ -684,7 +796,7 @@ def main():
     deduper = Deduper(acts, cache)
     order, src, delta = pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms,
                              deduper, must=must, cutoff_ms=cutoff_ms)
-    order, cover = food_first(order, acts)
+    order, cover = cover_first(order, acts, delta)
 
     log(f"当选 {len(deduper.kept_ids)} 条；去重剔除 {len(deduper.dropped)} 条（{deduper.report()}）")
     for aid, why, other in deduper.dropped[:8]:
