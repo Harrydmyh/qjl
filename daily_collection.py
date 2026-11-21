@@ -10,11 +10,15 @@
   3. 当天开的链接、当天有销量的 → 进
   4. 排在最前 6 款优先食品类
   5. 条数 80~200，标题带当天日期
+  6. 同款只留一条（按优先级留下更高的那条），三条判据任一命中即算同款：
+     · 底层商品库同源：goodsId 或 spuId 有交集
+     · 标题 90% 以上文字一样（活动名或商品名）
+     · 内部图片重合 ≥ 5 张
 
 数据来源（都实测过）：
   · 商品数据   POST /ghdata-biz/api/ghData/queryPageGhGoodsRank
                dataType=10 是「今天」；orderField=uv 按访问量排、=buyQuantity 按销量排。
-               **每页最多 30 条、pageNum 翻不动**，所以只有「今天 uv 前 30」「今天销量前 30」。
+               **翻页参数是 page（写 pageNum 会一直返回第一页）**，每页 30 条、pageSize 无效。
                字段：goodsId / uv / buyQuantity / gmv / turnRate。
   · 主页在售团 POST /ghome-feed/ghome_feed/query_ghome_feed_back_v2 （ghType=20）
   · 活动商品   POST /activity-detail/activity/detail/general_goods  {activityId}
@@ -30,8 +34,10 @@
 """
 import argparse
 import datetime
+import difflib
 import json
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -43,16 +49,157 @@ TANG = "PspU4o9_bsxkBH0_6c6cef00"      # 汤团（开团号），合集也建在
 
 GOODS_CACHE = os.path.join(DATA, "coll_goods_cache.json")
 SELECTED = os.path.join(DATA, "coll_selected.json")       # 每天的选品结果留底
+PREVIEW = os.path.join(DATA, "coll_preview.json")         # dry-run 的结果，不覆盖留底
 TEMPLATE_ID = 2098411                                     # 只为抄 extJson（背景图/同步开关）
 
 MIN_ITEMS, MAX_ITEMS = 80, 200
 UV_TOP_RATIO = 0.35            # 当天访问量前 35%
 COVER_FOOD = 6                 # 封面 6 款优先食品
 REFRESH_HOURS = 12             # 同一个团的商品明细，12 小时内不重复拉
+CACHE_VER = 2                  # 缓存结构版本；升级后自动重拉（v2 才带 spuId 和全部图片）
+
+# 去重三条判据（用户 2026-11-21 定）
+TITLE_SIM = 0.90               # 标题文字相似度 ≥ 90% 视为同款
+PIC_OVERLAP = 5                # 同一个团之间重合图片 ≥ 5 张视为同款
 
 
 def log(*a):
     print(f"[{datetime.datetime.now():%H:%M:%S}]", *a, flush=True)
+
+
+# ---------------------------------------------------------------- 0. 同款判定
+def _norm_title(s):
+    """标题归一化：去 emoji / 标点 / 空白，转小写。"""
+    s = str(s or "")
+    s = re.sub(r"[\U0001F300-\U0001FAFF\u2600-\u27BF\uFE0F]", "", s)
+    return re.sub(r"[^\w\u4e00-\u9fff]", "", s).lower()
+
+
+def _title_same(a, b):
+    """两个标题是否 90% 以上文字一样。"""
+    a, b = _norm_title(a), _norm_title(b)
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    if len(short) < 6:                      # 太短的标题不判，免得「赠品」互相误杀
+        return False
+    if len(short) / len(long_) < 0.55:      # 长度差太多，不可能 90% 重合
+        return False
+    if short in long_:                      # 完全包含，按 100% 算
+        return True
+    return difflib.SequenceMatcher(None, a, b).ratio() >= TITLE_SIM
+
+
+def _pic_key(u):
+    """图片归一化：去 query、去尺寸后缀，取「目录/文件名」两段。"""
+    u = str(u or "").strip().split("?")[0]
+    if not u:
+        return ""
+    u = re.sub(r"[-_]\d{2,4}(x\d{2,4})?\.(jpg|jpeg|png|webp)$", "", u, flags=re.I)
+    parts = [p for p in u.split("/") if p]
+    return "/".join(parts[-2:]).lower()
+
+
+class Deduper:
+    """三层去重：底层商品同源 / 标题 90% 雷同 / 图片重合 5 张以上。
+
+    用法：按优先级从高到低依次 answer `dup_of(aid)`，不重复就 `take(aid)`。
+    已入选的团建倒排索引，几千个候选也只有线性开销。
+    """
+
+    def __init__(self, acts, cache):
+        self.acts, self.cache = acts, cache
+        self.gid = {}          # goodsId  → 已入选 actId
+        self.spu = {}          # spuId    → 已入选 actId
+        self.pic = {}          # 图片键   → 已入选 actId 列表
+        self.titles = []       # [(归一化标题, actId)]
+        self.stats = {"商品同源": 0, "标题雷同": 0, "图片重合": 0}
+        self.dropped = []      # [(actId, 原因, 撞上的actId)]
+        self.kept_ids = []
+        self._fp = {}
+
+    def _fp_of(self, aid):
+        """→ (goodsId 集合, spuId 集合, 图片集合, 标题列表)"""
+        if aid in self._fp:
+            return self._fp[aid]
+        c = self.cache.get(aid) or {}
+        gids, spus, pics, titles = set(), set(), set(), []
+        act = self.acts.get(aid) or {}
+        if act.get("name"):
+            titles.append(act["name"])
+        for p in act.get("pics") or []:
+            k = _pic_key(p)
+            if k:
+                pics.add(k)
+        for g in c.get("goods") or []:
+            if g.get("goodsId"):
+                gids.add(str(g["goodsId"]))
+            if g.get("spuId"):
+                spus.add(str(g["spuId"]))
+            if g.get("name"):
+                titles.append(g["name"])
+            for p in (g.get("pics") or [g.get("pic")]):
+                k = _pic_key(p)
+                if k:
+                    pics.add(k)
+        self._fp[aid] = (gids, spus, pics, titles)
+        return self._fp[aid]
+
+    def dup_of(self, aid):
+        """撞上已入选的团就返回 (原因, 对方 actId)，否则 None。"""
+        gids, spus, pics, titles = self._fp_of(aid)
+        for g in gids:                                  # ① 底层商品库同源
+            if g in self.gid:
+                return "商品同源", self.gid[g]
+        for s in spus:
+            if s in self.spu and self.spu[s] != aid:
+                return "商品同源", self.spu[s]
+        hit = {}                                        # ② 图片重合 ≥5 张
+        for k in pics:
+            for other in self.pic.get(k, ()):
+                hit[other] = hit.get(other, 0) + 1
+        if hit:
+            other, n = max(hit.items(), key=lambda kv: kv[1])
+            if n >= PIC_OVERLAP:
+                return "图片重合", other
+        for mine in titles:                             # ③ 标题 90% 雷同
+            for their, other in self.titles:
+                if _title_same(mine, their):
+                    return "标题雷同", other
+        return None
+
+    def take(self, aid):
+        gids, spus, pics, titles = self._fp_of(aid)
+        for g in gids:
+            self.gid.setdefault(g, aid)
+        for s in spus:
+            self.spu.setdefault(s, aid)
+        for k in pics:
+            self.pic.setdefault(k, []).append(aid)
+        for t in titles:
+            nt = _norm_title(t)
+            if nt:
+                self.titles.append((nt, aid))
+
+    def filter(self, ordered):
+        """按传入顺序（优先级从高到低）过滤，返回 (保留, 丢弃)。"""
+        kept = []
+        for aid in ordered:
+            why = self.dup_of(aid)
+            if why:
+                self.stats[why[0]] += 1
+                self.dropped.append((aid, why[0], why[1]))
+                continue
+            self.take(aid)
+            kept.append(aid)
+        self.kept_ids = kept
+        return kept, self.dropped
+
+    def report(self):
+        return "、".join(f"{k} {v} 条" for k, v in self.stats.items())
+
 
 
 # ---------------------------------------------------------------- 1. 今日商品数据
@@ -111,7 +258,8 @@ def feed_acts(session, headers):
                         "create": a.get("createTime") or 0, "end": a.get("endTime") or 0,
                         "status": a.get("activityStatus"), "pause": a.get("pauseSw"),
                         "type": a.get("activityType"), "view": a.get("viewCount") or 0,
-                        "pic": pics[0] if pics else "", "own": a.get("ghId") == TANG}
+                        "pic": pics[0] if pics else "", "pics": [p for p in pics if p],
+                        "own": a.get("ghId") == TANG}
         if not d.get("hasNextPage"):
             break
     log(f"主页团 {len(out)} 个（翻了 {pages} 页）")
@@ -127,9 +275,12 @@ def _one_act_goods(session, headers, aid):
         goods = []
         for c in cats:
             for g in (c.get("activityGoodsList") or []):
+                pics = [p for p in (g.get("goodsPicList") or []) if p]
                 goods.append({"goodsId": g.get("goodsId"),
+                              "spuId": g.get("spuId"),
                               "name": g.get("goodsName") or "",
-                              "pic": (g.get("goodsPicList") or [""])[0],
+                              "pic": pics[0] if pics else "",
+                              "pics": pics,
                               "price": g.get("groupBuyPrice"),
                               "bought": g.get("boughtCount") or 0})
         return aid, goods
@@ -141,8 +292,11 @@ def fill_goods(session, headers, acts, cache):
     """给在售团补齐商品明细；12 小时内拉过的不重复拉。"""
     now = time.time()
     todo = [a for a in acts
-            if a not in cache or now - (cache[a].get("ts") or 0) > REFRESH_HOURS * 3600]
-    log(f"拉商品明细 {len(todo)} 个（缓存命中 {len(acts) - len(todo)}）")
+            if a not in cache or cache[a].get("v") != CACHE_VER
+            or now - (cache[a].get("ts") or 0) > REFRESH_HOURS * 3600]
+    stale = sum(1 for a in todo if a in cache and cache[a].get("v") != CACHE_VER)
+    log(f"拉商品明细 {len(todo)} 个（缓存命中 {len(acts) - len(todo)}"
+        + (f"；{stale} 个是旧版缓存，需要补 spuId/图片" if stale else "") + "）")
     done = 0
     with ThreadPoolExecutor(max_workers=8) as ex:
         for aid, goods in ex.map(lambda a: _one_act_goods(session, headers, a), todo):
@@ -151,6 +305,7 @@ def fill_goods(session, headers, acts, cache):
                 continue
             cache[aid] = {"goods": goods,
                           "orders": sum(g["bought"] for g in goods),
+                          "v": CACHE_VER,
                           "ts": int(now)}
             if done % 400 == 0:
                 log(f"  …{done}/{len(todo)}")
@@ -181,7 +336,7 @@ def save_snapshot(acts, cache, today):
 
 
 # ---------------------------------------------------------------- 5. 选品
-def pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms):
+def pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms, deduper=None):
     """→ (有序 actId 列表, 来源标记, 今日单)
 
     权重刻意拉开档次：有单 100 > 访问前列 90 > 今日开 50 > 补位 10。
@@ -241,27 +396,37 @@ def pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms):
 
     order = sorted(picked, key=key_of, reverse=True)
 
+    # 去重：按优先级从高到低过一遍，同款只留一条（留下的是优先级更高的）
+    if deduper is not None:
+        order, _ = deduper.filter(order)
+
     # 条数口径（用户 2026-11-21 定）：达标多少就放多少，超过 200 截 200；
-    # 不到 80 先用「今天开的团」按累计浏览补，再不够用其余在售补。
-    if len(order) < MIN_ITEMS:
-        extra = [a for a in acts if a not in picked and a in cache
-                 and acts[a]["create"] >= today_ms]
-        extra.sort(key=lambda a: (acts[a]["view"], acts[a]["create"]), reverse=True)
-        for a in extra:
+    # 不到 80 先用「今天开的团」按累计浏览补，再不够用其余在售补。补位同样要去重。
+    def fill_from(pool, tag, w):
+        pool.sort(key=lambda a: (acts[a]["view"], acts[a]["create"]), reverse=True)
+        for a in pool:
             if len(order) >= MIN_ITEMS:
                 break
-            add(a, "今日新开", 50)
-            order.append(a)
-    if len(order) < MIN_ITEMS:
-        rest = [a for a in acts if a not in picked and a in cache]
-        rest.sort(key=lambda a: (acts[a]["view"], acts[a]["create"]), reverse=True)
-        for a in rest:
-            if len(order) >= MIN_ITEMS:
-                break
-            add(a, "补位", 10)
+            if a in picked:
+                continue
+            if deduper is not None:
+                why = deduper.dup_of(a)
+                if why:
+                    deduper.stats[why[0]] += 1
+                    deduper.dropped.append((a, why[0], why[1]))
+                    continue
+                deduper.take(a)
+            add(a, tag, w)
             order.append(a)
 
-    order = sorted(picked, key=key_of, reverse=True)
+    if len(order) < MIN_ITEMS:
+        fill_from([a for a in acts if a not in picked and a in cache
+                   and acts[a]["create"] >= today_ms], "今日新开", 50)
+    if len(order) < MIN_ITEMS:
+        fill_from([a for a in acts if a not in picked and a in cache], "补位", 10)
+
+    # 只对去重后的这一份排序；早先这里用 sorted(picked) 会让被剔除的条目复活
+    order = sorted(order, key=key_of, reverse=True)
     return order[:MAX_ITEMS], src, {**delta, **today_order}
 
 
@@ -315,10 +480,10 @@ def main():
         done = json.load(open(SELECTED))
     except Exception:
         pass
-    if done.get("date") == datetime.date.today().strftime("%Y-%m-%d") and done.get("collectionId") \
-            and not a.force:
+    if a.apply and done.get("date") == datetime.date.today().strftime("%Y-%m-%d") \
+            and done.get("collectionId") and not a.force:
         log(f"今天已经建过了：合集 {done['collectionId']}（{done.get('title')}）。"
-            f"确实要再建一条加 --force")
+            f"确实要再建一条加 --force；只想看结果就去掉 --apply")
         return
 
     cfg = json.load(open(os.path.join(DATA, "config.json")))
@@ -352,9 +517,17 @@ def main():
     log(f"商品明细 {len([x for x in acts if x in cache])} 个可用；上一份快照 "
         f"{len(prev_orders)} 条" + (f"（{back} 天前）" if back else "（无，今天只能靠商品榜）"))
 
-    order, src, delta = pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms)
+    deduper = Deduper(acts, cache)
+    order, src, delta = pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms, deduper)
     order, cover = food_first(order, acts)
 
+    log(f"当选 {len(deduper.kept_ids)} 条；去重剔除 {len(deduper.dropped)} 条（{deduper.report()}）")
+    for aid, why, other in deduper.dropped[:8]:
+        nm = (acts.get(aid) or {}).get("name") or str(aid)
+        on = (acts.get(other) or {}).get("name") or str(other)
+        log(f"    剔除 {nm[:20]:<22}{why} ← {on[:20]}")
+    if len(deduper.dropped) > 8:
+        log(f"    …另有 {len(deduper.dropped) - 8} 条同款剔除")
     log(f"选出 {len(order)} 条")
     for i, aid in enumerate(order, 1):
         v = acts[aid]
@@ -368,9 +541,17 @@ def main():
     title = a.title or f"汤团日间集市{today.month}.{today.day}"
     payload = {"date": today.strftime("%Y-%m-%d"), "title": title, "actIdList": order,
                "cover": sorted(cover), "source": src,
+               "dedup": {"dropped": len(deduper.dropped), "by_reason": deduper.stats},
+               "acts": {a: {"name": acts[a]["name"], "pics": acts[a].get("pics") or []}
+                        for a in order if a in acts},
+               "dedup_detail": [{"actId": x, "why": w, "dupWith": o,
+                                 "name": (acts.get(x) or {}).get("name") or ""}
+                                for x, w, o in deduper.dropped],
                "collectionId": done.get("collectionId") if done.get("date") == today.strftime("%Y-%m-%d") else None}
-    json.dump(payload, open(SELECTED, "w"), ensure_ascii=False, indent=1)
-    log(f"留底 {os.path.basename(SELECTED)}；标题「{title}」")
+    # dry-run 只写预览文件，不动当天留底（留底要跟真正建出来的合集一致）
+    out = SELECTED if a.apply else PREVIEW
+    json.dump(payload, open(out, "w"), ensure_ascii=False, indent=1)
+    log(f"留底 {os.path.basename(out)}；标题「{title}」")
 
     if not a.apply:
         log("dry-run：加 --apply 才真的新建合集")

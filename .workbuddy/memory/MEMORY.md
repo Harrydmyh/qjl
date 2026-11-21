@@ -71,6 +71,10 @@
 
 ## 汤团「日间集市」每日合集（daily_collection.py，2026-11-21 起）
 - 每天 19:00 建一条 `汤团日间集市M.D`，条数浮动 80~200，封面 6 款必须食品；automation `d343332a`。
+- **同款只留一条**（按优先级留高的那条），三条判据任一命中即算：goodsId/spuId 交集（底层商品库同源）、标题归一化后相似 ≥90%、内部图片重合 ≥5 张。`Deduper` 类，倒排索引。
+- 缓存 `CACHE_VER=2` 才带 spuId + 全部图片；升级后首次跑会重拉约 2950 个团（40 秒）。旧缓存去重会退化成只剩 goodsId。
+- dry-run 只写 `data/coll_preview.json`，不动 `coll_selected.json`；同日拦截只在 `--apply` 时生效。
+- 坑：`pick()` 末尾若再 `sorted(picked)` 会把去重剔除项捞回来，必须只排去重后的那一份。
 - **商品数据接口** `POST /ghdata-biz/api/ghData/queryPageGhGoodsRank`：`dataType=10` 是今天，`orderField=uv|buyQuantity`，**翻页用 `page`（写 pageNum 无效）**，每页固定 30。销量榜几页就到底＝当天有单商品全量（实测覆盖 147 单 vs 大盘 149）；访问榜只取前 30 页按 35% 截。`dateTag` 传什么都一样，不能用来切日期。
 - **自己开的团查不到「帮卖广场详情」**（query_list_by_act_ids 对自家团返空）；只有 `POST /activity-detail/activity/detail/general_goods {activityId}` 能拿到 goodsId 列表。
 - 主页 feed 的 `actItemDTO.ghId` 恒等于汤团自己（子团都是它开的），不能用来判「谁开的」；`boughtCount` 与 `goodsAllOrderNum` 都不是本团销量，别当今日单量用。
