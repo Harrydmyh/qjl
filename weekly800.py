@@ -491,15 +491,14 @@ def load_prev_snapshot():
     if not cands:
         return {}, None
     pick = None
+    now_ts = time.time()
     for c in reversed(cands):
-        m = re.search(r"_(\d{8})\.json$", c)
-        if not m:
-            continue
+        p = os.path.join(DATA, c)
         try:
-            ts = datetime.strptime(m.group(1), "%Y%m%d")
-        except Exception:
+            age_sec = now_ts - os.path.getmtime(p)
+        except OSError:
             continue
-        if (datetime.now() - ts).total_seconds() >= 20 * 3600:
+        if age_sec >= 20 * 3600:
             pick = c
             break
     if pick is None:                     # 全都太新：宁可不筛冷团，也别整表清空
@@ -1241,11 +1240,28 @@ def load_skip_map():
     return out
 
 
+def _is_done_in_window(item, win_start_iso):
+    """判断旧计划里的已执行状态（opened/failed/gone）是否属于「本周排期窗口」内。
+
+    上周开过的团到了新一周必须重新进入待开（pending），不能沿用上周的 opened 状态永久跳过；
+    只有本周窗口内（doneAt 或 date >= win_start_iso）已经执行过的，重跑时才保留进度。
+    """
+    if not item or item.get("status") not in ("opened", "failed", "gone"):
+        return False
+    done_at = (item.get("doneAt") or "").strip()[:10]
+    if done_at:
+        return done_at >= win_start_iso
+    item_date = (item.get("date") or "").strip()[:10]
+    return bool(item_date and item_date >= win_start_iso)
+
+
 def export_plan(days, dates, slots, skip_map, detail=None):
     """把帮卖那份排期落成执行计划（自动开团的唯一数据源）。
 
-    重跑生成器时不覆盖已有的执行进度：同 actId 的 status 若是 opened/failed，
-    保留原状态与结果，只更新排期时间。
+    重跑生成器时不覆盖「本周窗口内」已有的执行进度：同 actId 若本周已 opened/failed，
+    保留原状态与结果，只更新排期时间；上周已开过的在新一周一律重置为 pending 正常重开。
+    另外，不提前按静态「5天内已开」标死 skip_recent（只跳过跨表「重复」），
+    5 天冷却一律交给执行器在真正开团那一刻现场复核。
     """
     old = {}
     if os.path.exists(PLAN_PATH):
@@ -1255,6 +1271,7 @@ def export_plan(days, dates, slots, skip_map, detail=None):
         except Exception:
             old = {}
 
+    win_start = dates[0].isoformat()
     items = []
     for di, chunk in enumerate(days):
         for ii, r in enumerate(chunk):
@@ -1263,8 +1280,9 @@ def export_plan(days, dates, slots, skip_map, detail=None):
                 mins = HOUR_END * 60
             key = str(r["actId"])
             prev = old.get(key) or {}
-            done = prev.get("status") in ("opened", "failed", "gone")
-            in_skip = key in skip_map
+            done = _is_done_in_window(prev, win_start)
+            skip_reason = skip_map.get(key, "")
+            is_dup = skip_reason.startswith("重复")
             items.append({
                 "actId": r["actId"],
                 "name": (r["goodsName"] or r["actName"])[:60],
@@ -1277,9 +1295,9 @@ def export_plan(days, dates, slots, skip_map, detail=None):
                 "slotMin": int(mins),        # 0 点起的分钟数，方便比较
                 "slot": int(mins) // 60,     # 兼容老字段
                 "status": prev.get("status") if done else
-                          ("skip_recent" if in_skip else "pending"),
+                          ("skip_recent" if is_dup else "pending"),
                 "newActId": prev.get("newActId") if done else None,
-                "note": prev.get("note") if done else (skip_map.get(key, "") if in_skip else ""),
+                "note": prev.get("note") if done else (skip_reason if is_dup else ""),
                 "doneAt": prev.get("doneAt") if done else None,
             })
     blob = {
@@ -1424,17 +1442,21 @@ def main():
     skip_all = load_skip_map()          # 两份表共用一套查重结果
     if skip_all:
         print(f"[skip] 查重跳过 {len(skip_all)} 条（5天内已开 / 重复）")
-    # 已执行的（帮卖自动开团）→ 表里显示「已开」
+    # 已执行的（帮卖自动开团，且仅限本周排期窗口内已执行）→ 表里显示「已开」
+    # 上周已开过的团在新一周必须重新排期并正常待开，不能沿用上周的「已开」状态
     done_map = {}
+    win_start = dates[0].isoformat()
     try:
         blob = json.load(open(PLAN_PATH))
         for x in blob.get("items", []):
+            if not _is_done_in_window(x, win_start):
+                continue
             if x.get("status") == "opened":
                 done_map[str(x["actId"])] = "已开"
             elif x.get("status") in ("failed", "gone"):
                 done_map[str(x["actId"])] = "开团失败"
         if done_map:
-            print(f"[done] 已执行 {len(done_map)} 条")
+            print(f"[done] 本周已执行 {len(done_map)} 条")
     except Exception:
         pass
     for label, group in (("跟团模式", fu), ("帮卖模式", bs)):
@@ -1452,7 +1474,13 @@ def main():
             else:
                 dead.append(r)
         print(f"[active] {label}: 有变动 {len(alive)-len(fresh)} / 新上榜 {len(fresh)} / 零变化剔除 {len(dead)}")
-        skip_map = {k: v for k, v in skip_all.items() if k in {str(r["actId"]) for r in alive}}
+        # 帮卖自动开团只静态跳过跨表「重复」，不提前按静态「5天内已开」剥夺排期，
+        # 5 天冷却统一由执行器在真正开团当时现场复核（有开过才跳过）。
+        if label == "帮卖模式":
+            skip_map = {k: v for k, v in skip_all.items()
+                        if k in {str(r["actId"]) for r in alive} and v.startswith("重复")}
+        else:
+            skip_map = {k: v for k, v in skip_all.items() if k in {str(r["actId"]) for r in alive}}
         dm = done_map if label == "帮卖模式" else {}
         if skip_map:
             ex = [r for r in alive if str(r["actId"]) not in skip_map]
