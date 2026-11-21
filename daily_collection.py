@@ -4,10 +4,11 @@
 
 每天 19:00 生成一条合集，标题 `汤团日间集市MM.DD`，80~200 条，封面 6 款优先食品。
 
-选品口径（用户 2026-11-21 定的五条）：
-  1. 当天有出订单的商品 → 进；当天访问量排名前 35% 的也进
-  2. 汤团自己开的团（ghId 是自己）作为必选
-  3. 当天开的链接、当天有销量的 → 进
+选品口径（用户 2026-11-21 定的五条，晚间那次以 12:30 之后开的链接起算）：
+  1. **汤团自己供货的跟团链接（activityType=150 且没有上游供货方）必选**，
+     只有这种团能邀请别的团长做二级跟团；
+  2. 当天有出订单的商品 → 进；当天访问量排名前 10% 的也进（原 35%，为必选让位下调）；
+  3. 当天开的链接、当天有销量的 → 进（补位池从 12:30 之后算）
   4. 排在最前 6 款优先食品类
   5. 条数 80~200，标题带当天日期
   6. 同款只留一条（按优先级留下更高的那条），三条判据任一命中即算同款：
@@ -53,8 +54,9 @@ PREVIEW = os.path.join(DATA, "coll_preview.json")         # dry-run 的结果，
 TEMPLATE_ID = 2098411                                     # 只为抄 extJson（背景图/同步开关）
 
 MIN_ITEMS, MAX_ITEMS = 80, 200
-UV_TOP_RATIO = 0.35            # 当天访问量前 35%
+UV_TOP_RATIO = 0.10            # 当天访问量前 10%（2026-11-21 由 35% 下调，给必选让位）
 COVER_FOOD = 6                 # 封面 6 款优先食品
+DAY_CUTOFF_HM = (12, 30)       # 「当天新开」只从 12:30 之后算（用户 2026-11-21 定）
 REFRESH_HOURS = 12             # 同一个团的商品明细，12 小时内不重复拉
 CACHE_VER = 2                  # 缓存结构版本；升级后自动重拉（v2 才带 spuId 和全部图片）
 
@@ -201,6 +203,96 @@ class Deduper:
         return "、".join(f"{k} {v} 条" for k, v in self.stats.items())
 
 
+# ---------------------------------------------------------------- 1.5 自营跟团链接
+def _root_of(session, headers, aid):
+    """查一个活动有没有「上游供货方」。
+
+    `POST /activity-biz/activity/detail/frame/help_sale_root {activityId}` 返回的
+    `activityRootInfo`：
+      · 帮卖的团 → 指向上游那家供货团长（ghName 就是供货商名字）；
+      · **自己供货的团 → null**。
+    ⚠️ 这条接口只吃 150（跟团那套 actId）；160 会报「接龙类型与接口类型不一致」，
+    160 要换成 help_sale_child，所以这里先试 root、失败了再试 child。
+    """
+    for path in ("/activity-biz/activity/detail/frame/help_sale_root",
+                 "/activity-biz/activity/detail/frame/help_sale_child"):
+        try:
+            j = session.post(core.BASE_URL + path, json={"activityId": int(aid)},
+                             headers=headers, timeout=15).json()
+        except Exception:
+            continue
+        if j.get("code") == 200:
+            ri = (j.get("data") or {}).get("activityRootInfo") or {}
+            # 有这个字段 = 帮卖（指向上游）；为 null = 自己供货
+            return bool(ri), ri.get("ghName") or ""
+    return None, ""
+
+
+def own_follow_acts(session, headers, cutoff_ms, max_pages=20):
+    """汤团自己供货的跟团链接（activityType=150 且没有上游供货方）。
+
+    平台没有「我发过的跟团链接」列表接口（那个「邀请团长帮卖 / 邀请团长跟团」
+    只是单个活动页上的分享按钮），所以只能从自己主页的「跟团视角」feed 里取 150，
+    再用 help_sale_root 判有没有上游。
+
+    2026-11-21 实测：全天 150 共 175 条，其中 17 条没有上游 = 自营，
+    跟用户说的「每天更新 5-20 条」对得上；用户举例的黑金鹅绒服就在这 17 条里。
+    ⚠️ 别再按「名字+创建时间」去跟 160 硬配（老做法扫 200 页、配半天还配不上）。
+    """
+    got = {}
+
+    def one(p):
+        try:
+            r = session.post(core.BASE_URL + "/ghome-feed/ghome_feed/query_ghome_feed_back_v2",
+                             json={"page": p, "pageSize": 50, "ghId": TANG, "keyword": "",
+                                   "ghType": 10, "sortRule": 10}, headers=headers, timeout=25).json()
+            d = r.get("data") or {}
+            return (d.get("feedItemDTOList") or []), d.get("hasNextPage")
+        except Exception:
+            return [], False
+
+    page = 1
+    while page <= max_pages:
+        lst, has_next = one(page)
+        if not lst:
+            break
+        newest = 0
+        for it in lst:
+            a = it.get("actItemDTO") or {}
+            c = a.get("createTime") or 0
+            newest = max(newest, c)
+            if a.get("activityType") != 150 or not a.get("actId"):
+                continue
+            if c < cutoff_ms:
+                continue
+            pics = [p for p in (a.get("picList") or []) if p]
+            got[str(a["actId"])] = {
+                "actId": str(a["actId"]), "name": a.get("activityName") or "",
+                "create": c, "end": a.get("endTime") or 0,
+                "status": a.get("activityStatus"), "pause": a.get("pauseSw"),
+                "type": 150, "view": a.get("viewCount") or 0,
+                "pic": pics[0] if pics else "", "pics": pics, "own": True,
+            }
+        # ⚠️ 不能按单条 createTime 判停止：每页开头混着置顶的老团（stickyStatus=210），
+        # 按单条判会在第 1 页就收工。整页最新一条都早于 cutoff 才算翻完了。
+        if newest < cutoff_ms or not has_next:
+            break
+        page += 1
+
+    def judge(aid):
+        has_up, sup = _root_of(session, headers, aid)
+        return aid, has_up, sup
+
+    own, help_sale = {}, 0
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        for aid, has_up, sup in ex.map(judge, list(got)):
+            if has_up is False:
+                own[aid] = got[aid]
+            elif has_up:
+                help_sale += 1
+    log(f"今天 {len(got)} 条跟团链接里，自己没有上游的 {len(own)} 条（帮卖 {help_sale} 条）")
+    return own
+
 
 # ---------------------------------------------------------------- 1. 今日商品数据
 def goods_rank(session, headers, order_field, max_pages=40):
@@ -336,10 +428,11 @@ def save_snapshot(acts, cache, today):
 
 
 # ---------------------------------------------------------------- 5. 选品
-def pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms, deduper=None):
+def pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms, deduper=None,
+         must=None, cutoff_ms=0):
     """→ (有序 actId 列表, 来源标记, 今日单)
 
-    权重刻意拉开档次：有单 100 > 访问前列 90 > 今日开 50 > 补位 10。
+    权重刻意拉开档次：**自营跟团必选 110** > 有单 100 > 访问前列 90 > 今日开 50 > 补位 10。
     早先给「今天开的团」100 分，结果 244 个今日新开把 200 个位置全占满，
     真正出了单的反而被挤出去——所以「今天开」只能算资格，不算优先。
     """
@@ -377,6 +470,9 @@ def pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms, deduper=None):
         if tag not in src[aid]:
             src[aid].append(tag)
 
+    for aid in (must or []):                                     # ⓿ 自营跟团必选
+        add(aid, "自营必选", 110)
+
     for g in buy_rank:                                           # ① 今日有出单的商品
         n = g.get("buyQuantity") or 0
         if n > 0 and g.get("goodsId") in g2a:
@@ -384,7 +480,7 @@ def pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms, deduper=None):
             add(aid, "今日有单", 100)
             today_order[aid] = today_order.get(aid, 0) + n
 
-    for g in uv_top:                                             # ② 今日访问前 35%
+    for g in uv_top:                                             # ② 今日访问前 10%
         hit = g2a.get(g.get("goodsId"))
         if hit:
             add(hit[1], "访问前列", 90)
@@ -421,7 +517,7 @@ def pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms, deduper=None):
 
     if len(order) < MIN_ITEMS:
         fill_from([a for a in acts if a not in picked and a in cache
-                   and acts[a]["create"] >= today_ms], "今日新开", 50)
+                   and acts[a]["create"] >= (cutoff_ms or today_ms)], "今日新开", 50)
     if len(order) < MIN_ITEMS:
         fill_from([a for a in acts if a not in picked and a in cache], "补位", 10)
 
@@ -443,6 +539,56 @@ def food_first(order, acts):
         return order, set()
     head = foods[:COVER_FOOD]
     return head + [a for a in order if a not in head], set(head)
+
+
+def dump_xlsx(payload, path):
+    """把选品结果导成一份 Excel 方便人工核对（周报/日间集市预览_日期.xlsx）。"""
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill
+    except Exception as e:
+        log("不导 Excel：", e)
+        return
+    acts = payload.get("acts") or {}
+    src = payload.get("source") or {}
+    cover = set(payload.get("cover") or [])
+    order = payload.get("actIdList") or []
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "选品预览"
+    heads = ["序号", "封面", "标题", "来源", "今日单", "商品数", "累计浏览", "活动ID"]
+    ws.append(heads)
+    for i, aid in enumerate(order, 1):
+        v = acts.get(aid) or {}
+        ws.append([i, "★" if aid in cover else "", (v.get("name") or "")[:120],
+                   "/".join(src.get(aid) or []), v.get("today") or 0, v.get("goods") or 0,
+                   v.get("view") or 0, aid])
+    ws2 = wb.create_sheet("去重剔除")
+    ws2.append(["被剔除的团", "剔除原因", "和谁重复"])
+    for d in payload.get("dedup_detail") or []:
+        ws2.append([(d.get("name") or "")[:120], d.get("why"), str(d.get("dupWith"))])
+    ws3 = wb.create_sheet("说明")
+    must = sum(1 for a in order if "自营必选" in (src.get(a) or []))
+    for line in [
+        f"标题：{payload.get('title')}",
+        f"总条数：{len(order)} 条（要求 80~200）",
+        f"封面 6 款：{(payload.get('cover') or []) and '前 6 条优先食品'}",
+        f"自营跟团必选：{must} 条（自己供货、可邀请团长二级跟团）",
+        f"访问量口径：前 {int(UV_TOP_RATIO * 100)}%",
+        f"「当天新开」起算：{DAY_CUTOFF_HM[0]}:{DAY_CUTOFF_HM[1]:02d}",
+        f"去重剔除：{len(payload.get('dedup_detail') or [])} 条",
+        "生成脚本：daily_collection.py",
+    ]:
+        ws3.append([line])
+    for c in ws[1]:
+        c.font = Font(bold=True)
+        c.fill = PatternFill("solid", fgColor="DDDDDD")
+    ws.freeze_panes = "A2"
+    ws.column_dimensions["C"].width = 90
+    ws.column_dimensions["D"].width = 22
+    ws.column_dimensions["H"].width = 20
+    wb.save(path)
+    log("预览表已写", os.path.basename(path))
 
 
 # ---------------------------------------------------------------- 6. 写合集
@@ -493,6 +639,8 @@ def main():
 
     today = datetime.date.today()
     today_ms = int(datetime.datetime.combine(today, datetime.time()).timestamp() * 1000)
+    cutoff_ms = int(datetime.datetime.combine(
+        today, datetime.time(*DAY_CUTOFF_HM)).timestamp() * 1000)
 
     uv_rank = goods_rank(session, headers, "uv", max_pages=30)
     buy_rank = goods_rank(session, headers, "buyQuantity", max_pages=10)
@@ -500,11 +648,23 @@ def main():
         f" / 销量榜 {len(buy_rank)} 条（当天有单的商品全量）")
 
     acts_all = feed_acts(session, headers)
+
+    # 自营跟团链接（用户 2026-11-21 要求作为必选）：自己供货的团没有上游，
+    # 别的团长可以二级跟团，所以必须进合集。只取今天 12:30 之后开的。
+    must_acts = own_follow_acts(session, headers, cutoff_ms)
+    merged = 0
+    for aid, v in must_acts.items():
+        if aid not in acts_all:
+            acts_all[aid] = v
+            merged += 1
+    log(f"自营跟团链接 {len(must_acts)} 条（{merged} 条主页 feed 里没有，单独补进来）")
+
     now_ms = int(time.time() * 1000)
     acts = {k: v for k, v in acts_all.items()
             if v["status"] == 10 and v["pause"] != 10 and (v["end"] or 0) > now_ms}
-    log(f"在售 {len(acts)}（今日新开 {sum(1 for v in acts.values() if v['create'] >= today_ms)}，"
-        f"自己开的 {sum(1 for v in acts.values() if v['own'])}）")
+    new_today = sum(1 for v in acts.values() if v["create"] >= today_ms)
+    log(f"在售 {len(acts)}（今日新开 {new_today}，其中 12:30 后 "
+        f"{sum(1 for v in acts.values() if v['create'] >= cutoff_ms)}）")
 
     try:
         cache = json.load(open(GOODS_CACHE))
@@ -517,8 +677,13 @@ def main():
     log(f"商品明细 {len([x for x in acts if x in cache])} 个可用；上一份快照 "
         f"{len(prev_orders)} 条" + (f"（{back} 天前）" if back else "（无，今天只能靠商品榜）"))
 
+    must = [aid for aid in must_acts if aid in acts and aid in cache]
+    if len(must) < len(must_acts):
+        log(f"⚠️ 有 {len(must_acts) - len(must)} 条自营链接拿不到商品明细/已下架，进不了合集")
+
     deduper = Deduper(acts, cache)
-    order, src, delta = pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms, deduper)
+    order, src, delta = pick(acts, cache, uv_rank, buy_rank, prev_orders, today_ms,
+                             deduper, must=must, cutoff_ms=cutoff_ms)
     order, cover = food_first(order, acts)
 
     log(f"当选 {len(deduper.kept_ids)} 条；去重剔除 {len(deduper.dropped)} 条（{deduper.report()}）")
@@ -542,7 +707,10 @@ def main():
     payload = {"date": today.strftime("%Y-%m-%d"), "title": title, "actIdList": order,
                "cover": sorted(cover), "source": src,
                "dedup": {"dropped": len(deduper.dropped), "by_reason": deduper.stats},
-               "acts": {a: {"name": acts[a]["name"], "pics": acts[a].get("pics") or []}
+               "acts": {a: {"name": acts[a]["name"], "pics": acts[a].get("pics") or [],
+                            "goods": len((cache.get(a) or {}).get("goods") or []),
+                            "today": delta.get(a, 0), "view": acts[a].get("view") or 0,
+                            "create": acts[a].get("create") or 0}
                         for a in order if a in acts},
                "dedup_detail": [{"actId": x, "why": w, "dupWith": o,
                                  "name": (acts.get(x) or {}).get("name") or ""}
@@ -552,6 +720,8 @@ def main():
     out = SELECTED if a.apply else PREVIEW
     json.dump(payload, open(out, "w"), ensure_ascii=False, indent=1)
     log(f"留底 {os.path.basename(out)}；标题「{title}」")
+    dump_xlsx(payload, os.path.join(HERE, "周报",
+                                    f"日间集市预览_{today.strftime('%Y%m%d')}.xlsx"))
 
     if not a.apply:
         log("dry-run：加 --apply 才真的新建合集")
