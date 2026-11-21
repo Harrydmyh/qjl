@@ -156,9 +156,20 @@ def plan_stats():
                         key=lambda x: (x.get("date") or "", _min(x)))
         nxt = future[0] if future else None
 
+    # 日期条按**计划自己**的第一天起算 7 天。
+    # 以前固定从今天起算，计划从明天开始时就会「今天空一行、最后一天被挤掉」，
+    # 页面看着像少了/错位了一天。
+    plan_dates = sorted({x.get("date") for x in items if x.get("date")})
+    start_d = today_d
+    if plan_dates:
+        try:
+            d0 = datetime.strptime(plan_dates[0], "%Y-%m-%d").date()
+            start_d = max(today_d, d0) if today_all else d0
+        except Exception:
+            start_d = today_d
     days = []
     for i in range(7):
-        d = today_d + timedelta(days=i)
+        d = start_d + timedelta(days=i)
         ds = d.isoformat()
         di = [x for x in items if x.get("date") == ds]
         dp = [x for x in di if x.get("status") == "pending"]

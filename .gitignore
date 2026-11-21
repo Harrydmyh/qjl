@@ -4,3 +4,7 @@ __pycache__/
 .env
 .DS_Store
 venv/
+
+# 出表的本地备份 / 临时工作目录，不进仓库
+周报/.bak/
+*.ref/

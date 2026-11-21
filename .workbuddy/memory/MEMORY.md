@@ -45,12 +45,17 @@
 ## 周报排期 + 自动开团（2026-11-14）
 - 出表 `weekly800.py`（--offline 只用当日详情缓存）；排期 `split_seven`：只在"要开的"里 7 天均分，贪心塞进「同类最少+同家最少」那天，日内按 食品→日用→服饰美妆→杂货 轮转且相邻不同供货商。
 - 四分类 `classify_cat.py`（DeepSeek，缓存 data/cat_cache.json；1食品/2日用/3服饰美妆/4杂货，判不出归 4）。
+- **稳定排期（同一条链接尽量排回上周同一天）的匹配键**：**actId 稳定、链接每周重新生成**。`short_link_cache.json` 存的是最新链接，可反查 actId。`load_actual_plan()` 读最新的 `复团*.xlsx`（只有链接、没有活动ID）→ 反查 actId，优先级仅低于 `sched_override.json`。只按 actId 读周报会让这批整批"失忆"被重排。
+- **同一天的 11-14 可能有两份不同计划**（`复团1114` 12:13 vs 周报 17:15，113 条周几不同），用户核对的是**实际执行的那份复团表**。
 - **表里的日期是"今天起 7 天"**（旧 next_week_dates 排下周，周六出的表当天用不上，已改）。
 - 执行：`auto_open_hourly.py` 读 `data/open_plan_tang.json`（weekly800 每次出表自动重写，保留已 opened 状态）；7-22 点、每波最多 4 条、条间随机 20-50s；`data/open_plan_STOP` 停；token 过期自停。
 - 对应 automation：汤团帮卖·每小时自动开团（FREQ=HOURLY）。**rrule 的 BYHOUR 只能单值**，所以不能"每天 7-22 每小时"，只能整点跑 + 脚本内判窗口。
 
 ## token
-- JWT HS512 能读能验、签不出续不了；无 refresh；**48 小时**到期重抓。微信登录不能脚本化（一次性 code）→ 上限是 mitmproxy 捞 token 写回配置。
+- JWT HS512 能读能验、签不出续不了；payload 只有 `uid`+`exp`、无 iat 无 refresh。微信登录不能脚本化（一次性 code）→ 上限是 mitmproxy 捞 token 写回配置。
+- **唯一续期入口** `POST /user/login/wx_login_silence`，body `{code, scene:1005, appid:wx059cd327295ab444}`，要 wx.login 的一次性 code → 脚本复刻不了。全站只有它会吐 token，响应头无 set-token。
+- **token 失效判据**：任何接口返回 `{"code":403,"msg":"登录凭证不合法或已过期"}`（严格校验、无宽限，过期 3 秒就 403）。脚本命中就该自停/告警。
+- 有效期实测（2026-11-20 抓包）：本轮两枚 token 都是签发后**整 7 天**；早期记的"48 小时"未复现，可能因登录入口不同，别当硬结论。
 
 ## 售后（after_sale_probe.py）
 - 列表 POST /after-sales-biz/as_order_search/v2/search。ghViewType 10=别人向我发起（要这个）/20=我向上游，互斥；asStatusList=[10,20] 待处理，[] 会拉到 2024 年归档；searchContent 只认手机号/订单号，售后单号用 asOrderNo。

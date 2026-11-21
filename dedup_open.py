@@ -203,7 +203,12 @@ def fetch_children(rows, workers=6):
 
 # ---------------------------------------------------------------- 4. 主页团
 def refresh_own(cfg=None):
-    """主页团（含 createTime / endTime），只保留最近 10 天够用（最多翻 5 页）。"""
+    """主页团（含 createTime / endTime），覆盖最近 10 天。
+
+    **别再只翻 5 页**：这个号一天能开两三百个团，5 页 100 条只够覆盖几个小时，
+    「近 5 天同名」实际上退化成了「近 9 小时」，5 天内重复开团根本判不出来。
+    现在按时间往前翻，翻到 10 天前或 80 页为止（一页 50 条），最多约 4000 条。
+    """
     if not cfg:
         cfg = json.load(open(os.path.join(DATA, "config.json")))
     gh = cfg.get("gh_id") or TANG_GH
@@ -212,11 +217,11 @@ def refresh_own(cfg=None):
     s = core.make_session()
     acts, page = [], 0
     cutoff = int(time.time() * 1000) - 10 * 86400000
-    for p in range(1, 6):
+    for p in range(1, 81):
         try:
             r = s.post(f"{core.BASE_URL}/ghome-feed/ghome_feed/query_ghome_feed_back_v2",
-                       json={"page": p, "pageSize": 20, "ghId": gh,
-                             "keyword": "", "ghType": 20, "sortRule": 10}, headers=h, timeout=10)
+                       json={"page": p, "pageSize": 50, "ghId": gh,
+                             "keyword": "", "ghType": 20, "sortRule": 10}, headers=h, timeout=15)
             d = (r.json() or {}).get("data") or {}
             lst = d.get("feedItemDTOList") or []
             if not lst:
