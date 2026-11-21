@@ -847,22 +847,19 @@ def _write_gen_last(extra=None):
 
 
 def _last_gen_gap_hours():
-    """距上次成功出表多少小时；没有记录就回落到今天的报表文件时间。"""
+    """距上次成功出表多少小时。
+
+    只认 data/gen_last.json——不要用报表文件的 mtime：`git pull` 会把文件时间
+    刷成"刚刚"，会把正常出表误判成"刚生成过"。
+    """
     last = _read_gen_last()
     ts = last.get("finished_at")
-    if ts:
-        try:
-            return (datetime.now() - datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600, ts
-        except Exception:
-            pass
+    if not ts:
+        return None, None
     try:
-        times = [p.stat().st_mtime for p in (Path(__file__).parent / "周报").glob("*800单以上*.xlsx")]
-        if times:
-            t = max(times)
-            return (time.time() - t) / 3600, datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S")
+        return (datetime.now() - datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600, ts
     except Exception:
-        pass
-    return None, None
+        return None, None
 
 
 def _run_weekly_gen(offline: bool = False, min_orders: int = 800):
