@@ -944,32 +944,41 @@ def build_slots(days, dates, skip_map=None, prev_time=None):
     """每天「要开」的条目各占一个分钟级时间点；跳过的条目不占时间（返回 None）。
 
     prev_time: actId -> 上一期的时间点（当天第几分钟）。
-    有记忆的按**原时段先后**排序后再摊时间：同一家、同一条链接每周落在相近的
-    位置，间隔又是均匀的（不去硬钉旧时刻，否则会和均摊点打架、把间隔压成 5 分钟）。
+    保持与前一周开团顺序一致：
+      · 老链接（前一周有排期记忆的）严格按前一周开团先后排序，保持相对顺序 100% 不变；
+      · 本周新增链接排在老链接之后（按品类打散顺序），不插队打乱前一周的老链接顺序；
+      · 排完时间后同步按时间先后重排当天 days[di] 与 slots[di]，让 Excel 和执行计划都严格按开团时间顺序展示。
     """
     skip_map = skip_map or {}
     prev_time = prev_time or {}
     now = datetime.now()
-    out = []
+    out_slots = []
     for di, chunk in enumerate(days):
         idx = [i for i, r in enumerate(chunk) if str(r["actId"]) not in skip_map]
         row = [None] * len(chunk)
         if not idx:
-            out.append(row)
+            out_slots.append(row)
             continue
         times = _spread(len(idx), dates[di], now)
-        order = idx
         if prev_time:
             keyed = []
             for pos, i in enumerate(idx):
                 p = prev_time.get(str(chunk[i]["actId"]))
-                keyed.append((p if p is not None else times[pos], pos, i))
+                if p is not None:
+                    keyed.append((0, p, pos, i))     # 老链接优先，严格沿用上周先后顺序
+                else:
+                    keyed.append((1, pos, pos, i))   # 本周新增追加在后，不打乱上周顺序
             keyed.sort()
-            order = [i for _, _, i in keyed]
+            order = [i for _, _, _, i in keyed]
+        else:
+            order = idx
         for i, t in zip(order, times):
             row[i] = t
-        out.append(row)
-    return out
+        # 同步按开团时间先后重排当天的条目与时间（无时间点的跳过/已开条目排在当天末尾）
+        paired = sorted(zip(chunk, row), key=lambda pair: (pair[1] is None, pair[1] if pair[1] is not None else 0))
+        days[di] = [p[0] for p in paired]
+        out_slots.append([p[1] for p in paired])
+    return out_slots
 
 
 def rebalance_today(days, dates, now=None):
@@ -1482,13 +1491,14 @@ def main():
         else:
             skip_map = {k: v for k, v in skip_all.items() if k in {str(r["actId"]) for r in alive}}
         dm = done_map if label == "帮卖模式" else {}
+        hard_mem = {**prev_sched, **actual_mem, **override}
         if skip_map:
             ex = [r for r in alive if str(r["actId"]) not in skip_map]
             sk = [r for r in alive if str(r["actId"]) in skip_map]
             # 只在「要开的」里面均分，再把跳过的塞回去展示——不然被跳过的日子会显得很空
-            days = add_skips(split_seven(ex, dates, schedule_mem, {**actual_mem, **override}), sk, dates, schedule_mem)
+            days = add_skips(split_seven(ex, dates, schedule_mem, hard_mem), sk, dates, schedule_mem)
         else:
-            days = split_seven(alive, dates, schedule_mem, {**actual_mem, **override})
+            days = split_seven(alive, dates, schedule_mem, hard_mem)
         # 今天已经过了早上，窗口塞不下的顺延到后面几天（不压缩间隔、不下午一波流）
         days, _moved = rebalance_today(days, dates)
         # 已开 / 跳过的都不占时间点，时间点全留给真正要开的
