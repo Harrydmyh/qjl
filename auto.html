@@ -691,11 +691,27 @@ function renderGenLogs(logs){
   el.scrollTop = el.scrollHeight;
 }
 
+let genForceUntil = 0;   // 二次确认：30 秒内再点一次 = 强制重跑
+
 async function startGenerate(){
   if ($('btnGenerate').disabled) return;
   try {
-    const r = await api('/api/auto/generate', {method:'POST'});
-    if (!r.ok) { showToast(r.msg || '无法启动生成'); return; }
+    const force = Date.now() < genForceUntil;
+    const r = await api('/api/auto/generate', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({force})
+    });
+    if (!r.ok) {
+      if (r.need_confirm) {
+        genForceUntil = Date.now() + 30000;
+        showToast(r.msg);
+        return;
+      }
+      showToast(r.msg || '无法启动生成');
+      return;
+    }
+    genForceUntil = 0;
     showToast('已开始在后台扫描并生成周报清单');
     $('genConsole').style.display = 'block';
     checkGenStatus();

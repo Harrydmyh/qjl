@@ -820,6 +820,50 @@ _gen_state = {
     "logs": [],
 }
 
+GEN_LAST_FILE = Path(__file__).parent / "data" / "gen_last.json"
+GEN_MIN_GAP_HOURS = 20      # 20 小时内不重复出表：间隔太短会把"订单没变"的链接误剔
+
+
+def _read_gen_last():
+    try:
+        with open(GEN_LAST_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _write_gen_last(extra=None):
+    try:
+        GEN_LAST_FILE.parent.mkdir(exist_ok=True)
+        blob = {"finished_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        if extra:
+            blob.update(extra)
+        tmp = str(GEN_LAST_FILE) + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(blob, f, ensure_ascii=False)
+        os.replace(tmp, GEN_LAST_FILE)
+    except Exception:
+        pass
+
+
+def _last_gen_gap_hours():
+    """距上次成功出表多少小时；没有记录就回落到今天的报表文件时间。"""
+    last = _read_gen_last()
+    ts = last.get("finished_at")
+    if ts:
+        try:
+            return (datetime.now() - datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")).total_seconds() / 3600, ts
+        except Exception:
+            pass
+    try:
+        times = [p.stat().st_mtime for p in (Path(__file__).parent / "周报").glob("*800单以上*.xlsx")]
+        if times:
+            t = max(times)
+            return (time.time() - t) / 3600, datetime.fromtimestamp(t).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+    return None, None
+
 
 def _run_weekly_gen(offline: bool = False, min_orders: int = 800):
     global _gen_state
@@ -854,6 +898,8 @@ def _run_weekly_gen(offline: bool = False, min_orders: int = 800):
                 _gen_state["state"] = "failed"
                 _gen_state["finished_at"] = _now_str()
                 _gen_state["error"] = f"进程异常退出（代码: {proc.returncode}）"
+        if proc.returncode == 0:
+            _write_gen_last({"ok": True})
     except Exception as e:
         with _gen_lock:
             _gen_state["state"] = "failed"
@@ -864,6 +910,7 @@ def _run_weekly_gen(offline: bool = False, min_orders: int = 800):
 class GenReq(BaseModel):
     offline: bool = False
     min_orders: int = 800
+    force: bool = False       # 确认过了要重跑（页面第二次点击会带 true）
 
 
 @app.post("/api/auto/generate")
@@ -872,6 +919,17 @@ async def auto_generate(req: GenReq = GenReq()):
     with _gen_lock:
         if _gen_state["state"] == "running":
             return {"ok": False, "msg": "周报正在生成中，请稍候"}
+    # 20 小时内不重复出表：间隔太短会让"近期有出单"判据失效，表会整批缩水
+    gap, last_at = _last_gen_gap_hours()
+    if gap is not None and gap < GEN_MIN_GAP_HOURS and not req.force:
+        return {
+            "ok": False,
+            "need_confirm": True,
+            "msg": f"上次生成是 {last_at}（{gap:.1f} 小时前）。"
+                   f"{GEN_MIN_GAP_HOURS} 小时内重复生成，会把订单数还没变化的链接当成冷团剔掉，表会缩水一截。"
+                   f"确认还要重跑，就在 30 秒内再点一次。",
+        }
+    with _gen_lock:
         _gen_state = {
             "state": "running",
             "started_at": _now_str(),
