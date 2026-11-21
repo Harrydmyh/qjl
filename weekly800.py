@@ -659,14 +659,19 @@ def load_prev_schedule():
                     if not row or not row[ai]:
                         continue
                     w = wd.get(str(row[di] or "").strip())
+                    if w is None:
+                        continue
+                    # 上一期里「5天内已开」的行没有开团时间（不占时间点），
+                    # 但它的星期几照样是有效记忆——只取周几，时刻给个默认值。
+                    minute = 12 * 60
                     t = str(row[ti] or "").strip()
-                    if w is None or " " not in t:
-                        continue
-                    try:
-                        hh, mm = t.split(" ")[-1].split(":")
-                        out[str(row[ai])] = (w, int(hh) * 60 + int(mm))
-                    except Exception:
-                        continue
+                    if " " in t:
+                        try:
+                            hh, mm = t.split(" ")[-1].split(":")
+                            minute = int(hh) * 60 + int(mm)
+                        except Exception:
+                            pass
+                    out[str(row[ai])] = (w, minute)
     except Exception:
         return {}
     print(f"[prev_sched] 上周排期记忆 {len(out)} 条（{newest}，{'、'.join(files)}）")
@@ -708,6 +713,11 @@ def load_actual_plan(fresh_days=21):
             if age <= fresh_days:
                 cand.append((os.path.getmtime(path), fn, path))
     if not cand:
+        # 源文件被删/挪走也别失忆：用上次解析结果的缓存（actId→周几 是稳定的）
+        cached = load_actual_cache()
+        if cached:
+            print(f"[actual_plan] 源表不在了，复用上次解析缓存 {len(cached)} 条")
+            return cached
         return {}
     cand.sort()
     _mt, fname, path = cand[-1]
@@ -743,7 +753,24 @@ def load_actual_plan(fresh_days=21):
         print(f"[actual_plan] 读取失败：{e}")
         return {}
     print(f"[actual_plan] 上周实际执行表记忆 {len(out)} 条（{fname}，{len(link2act)} 条短链反查）")
+    try:
+        tmp = ACTUAL_MEM_PATH + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({k: list(v) for k, v in out.items()}, f)
+        os.replace(tmp, ACTUAL_MEM_PATH)
+    except Exception as e:
+        print(f"[actual_plan] 缓存写入失败：{e}")
     return out
+
+
+def load_actual_cache():
+    """上次解析好的「上周实际执行表」记忆：actId -> (周几, 分钟)。"""
+    try:
+        with open(ACTUAL_MEM_PATH) as f:
+            blob = json.load(f)
+        return {str(k): (int(v[0]), int(v[1])) for k, v in blob.items() if v}
+    except Exception:
+        return {}
 
 
 def load_plan_memory(dates=None):
@@ -1191,6 +1218,7 @@ PLAN_PATH = os.path.join(DATA, "open_plan_tang.json")
 LOG_PATH = os.path.join(DATA, "open_log.json")
 FOLLOW_MEM_PATH = os.path.join(DATA, "sched_follow.json")
 OVERRIDE_PATH = os.path.join(DATA, "sched_override.json")
+ACTUAL_MEM_PATH = os.path.join(DATA, "sched_actual.json")   # 上周实际执行表的解析结果（防源文件被删）
 BLACKLIST_FILE = os.path.join(DATA, "blacklist_suppliers.json")
 # 永久拉黑的供货商（子串匹配 ghName）。用户 2026-11-14 指定：这两家以后每周都不开。
 BLACKLIST_DEFAULT = ["简小姐", "悦宝"]
