@@ -15,3 +15,6 @@ proxy.sh
 catch_token.py
 wecom_groups.py
 合集海报_*.png
+
+# 人脸检测编译产物
+tools/facedet
