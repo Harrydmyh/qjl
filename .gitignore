@@ -8,3 +8,10 @@ venv/
 # 出表的本地备份 / 临时工作目录，不进仓库
 周报/.bak/
 *.ref/
+
+# 本机工具脚本（抓票 / 代理 / 浏览器），只在本地，不入库
+ab.sh
+proxy.sh
+catch_token.py
+wecom_groups.py
+合集海报_*.png
