@@ -275,8 +275,8 @@ def pick_tang2(acts, must, cache, buy_rank, uv_ranks, ratio, foods, lows):
 
 
 # ---------------------------------------------------------------- 5. 封面
-def cover_food(order, acts, sales=None, n=dc.COVER_FOOD):
-    """汤团：从全部候选中挑出真食品，按销量（再看浏览量）取前 6 款作封面。"""
+def cover_food(order, acts, sales=None, n=dc.COVER_FOOD, account="tang", exclude_file=None):
+    """汤团：从全部候选中挑出真食品，避开当天已用封面，按销量（再看浏览量）取前 6 款作封面。"""
     if not order:
         return []
     sales = sales or {}
@@ -285,15 +285,27 @@ def cover_food(order, acts, sales=None, n=dc.COVER_FOOD):
     except Exception as e:
         log("品类判定跳过：", e)
         return []
+    used_ids, used_pics = dc.today_used_covers(account, exclude_file=exclude_file)
+    def _used(a):
+        if a in used_ids:
+            return True
+        pics = (acts.get(a) or {}).get("pics") or []
+        return bool(pics and pics[0] and pics[0] in used_pics)
+
     foods = [a for a in order if cat.get(acts[a]["name"]) == 1]
     foods.sort(key=lambda a: (-(sales.get(a, 0)),
                               -(acts[a].get("view") or 0),
                               -(acts[a].get("create") or 0)))
-    picked = foods[:n]
+    fresh_foods = [a for a in foods if not _used(a)]
+    picked = fresh_foods[:n]
+    if len(picked) < n:
+        picked += [a for a in foods if a not in picked][:n - len(picked)]
     if len(picked) < n:
         rest = [a for a in order if a not in picked]
         rest.sort(key=lambda a: (-(sales.get(a, 0)), -(acts[a].get("view") or 0)))
         picked += rest[:n - len(picked)]
+    if used_ids:
+        log(f"避开当天已用封面 {len(used_ids)} 个")
     log(f"封面 6 款：食品 {len([a for a in picked if cat.get(acts[a]['name']) == 1])} 个（最高销量 {sales.get(picked[0], 0) if picked else 0}）")
     return picked[:n]
 
@@ -465,7 +477,7 @@ def main():
     if acc["self_must"]:
         order, src, sales = pick_tang(acts, cache, buy_rank, uv_ranks, must, ratio,
                                       start_ms, deduper)
-        cover = cover_food(order, acts, sales=sales)
+        cover = cover_food(order, acts, sales=sales, account=a.account, exclude_file=store)
     else:
         order, src, sales = pick_tang2(acts, must, cache, buy_rank, uv_ranks, ratio,
                                        foods, lows)

@@ -645,16 +645,65 @@ def face_scores(pics):
             pass
 
 
+def today_used_covers(account, today_str=None, exclude_file=None):
+    """返回当天同账号已建合集用过的封面 (actId 集合, 首图 URL 集合)，避免一天 3 个合集前 6 张图重复。"""
+    today_str = today_str or datetime.date.today().strftime("%Y-%m-%d")
+    if account == "tang":
+        files = [
+            os.path.join(DATA, "slot_tang_morning.json"),
+            os.path.join(DATA, "slot_tang_noon.json"),
+            SELECTED,
+        ]
+    else:
+        files = [
+            os.path.join(DATA, "slot_tang2_morning.json"),
+            os.path.join(DATA, "slot_tang2_noon.json"),
+            os.path.join(DATA, "coll2_selected.json"),
+        ]
+    excl = os.path.abspath(exclude_file) if exclude_file else None
+    used_ids, used_pics = set(), set()
+    for fp in files:
+        if excl and os.path.abspath(fp) == excl:
+            continue
+        try:
+            with open(fp, encoding="utf-8") as f:
+                d = json.load(f)
+        except Exception:
+            continue
+        if d.get("date") != today_str or not d.get("collectionId"):
+            continue
+        cov = d.get("cover") or (d.get("actIdList") or [])[:COVER_FOOD]
+        acts_map = d.get("acts") or {}
+        for aid in cov:
+            aid_s = str(aid)
+            used_ids.add(aid_s)
+            pics = (acts_map.get(aid_s) or {}).get("pics") or []
+            if pics and pics[0]:
+                used_pics.add(pics[0])
+    return used_ids, used_pics
+
+
 def cover_first(order, acts, sales=None):
-    """把封面 6 款提到最前面：主图要有模特真人（半身/大头照），其中销量优先。
+    """把封面 6 款提到最前面：主图要有模特真人（半身/大头照），其中销量优先，且避开当天已用封面。
 
     封面在合集里就是前 6 张图，只能靠调顺序实现。
     候选取优先级最高的 COVER_SCAN 条，在里面挑「检测到人脸、且脸够大」的，
     再按今天的单量排（单量一样时食品类优先），取前 6 条。
     """
-    head = order[:COVER_SCAN]
+    used_ids, used_pics = today_used_covers("tang", exclude_file=SELECTED)
+    def _used(a):
+        if a in used_ids:
+            return True
+        pics = (acts.get(a) or {}).get("pics") or []
+        return bool(pics and pics[0] and pics[0] in used_pics)
+
+    head = [a for a in order if not _used(a)][:COVER_SCAN]
+    if len(head) < COVER_FOOD:
+        head = order[:COVER_SCAN]
     if not head:
         return order, set()
+    if used_ids:
+        log(f"避开当天已用封面 {len(used_ids)} 个")
     sales = sales or {}
     pics = [((acts.get(a) or {}).get("pics") or [""])[0] for a in head]
     scores = face_scores(pics)

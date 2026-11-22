@@ -154,13 +154,14 @@ def _clean_env():
     env = os.environ.copy()
     for k in PROXY_VARS:
         env.pop(k, None)
+    env["OPENCV_LOG_LEVEL"] = "ERROR"
     return env
 
 
 def _parse_output(out):
     """从脚本输出里提取合集 ID、摘要与状态。"""
     cid = None
-    m = re.search(r"合集\s*ID\s*(\d+)", out)
+    m = re.search(r"合集(?:\s*ID|已建[：:])\s*(\d+)", out)
     if not m:
         m = re.search(r"已经建过了：合集\s*(\d+)", out)
     if not m:
@@ -168,7 +169,7 @@ def _parse_output(out):
     if m:
         cid = m.group(1)
 
-    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip() and not ln.strip().startswith("[ WARN:")]
     summary = lines[-1] if lines else ""
     if "登录凭证不合法或已过期" in out or '"code":403' in out:
         return "fail", cid, "token 已过期（403），请更新 config.json"

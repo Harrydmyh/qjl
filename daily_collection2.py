@@ -247,13 +247,24 @@ def face_scores(pics):
 
 
 def choose_cover(order, acts, n=COVER_N):
-    """从前 COVER_SCAN 个候选里挑主图有真人的（脸够大＝半身/大头照），按原顺序取 n 个。
+    """从前 COVER_SCAN 个候选里挑主图有真人的（脸够大＝半身/大头照），避开当天已用封面，按原顺序取 n 个。
 
     顺序本身就是「销量优先、再看访问量」，所以挑出来的就是在有真人图的里面销量最好的。
     """
-    head = order[:COVER_SCAN]
+    used_ids, used_pics = dc.today_used_covers("tang2", exclude_file=SELECTED)
+    def _used(a):
+        if a in used_ids:
+            return True
+        pics = (acts.get(a) or {}).get("pics") or []
+        return bool(pics and pics[0] and pics[0] in used_pics)
+
+    head = [a for a in order if not _used(a)][:COVER_SCAN]
+    if len(head) < n:
+        head = order[:COVER_SCAN]
     if not head:
         return []
+    if used_ids:
+        log(f"避开当天已用封面 {len(used_ids)} 个")
     pics = [((acts.get(a) or {}).get("pics") or [""])[0] for a in head]
     scores = dc.face_scores(pics)
     picked = [a for a, (cnt, h) in zip(head, scores) if cnt > 0 and h >= FACE_MIN_H]
