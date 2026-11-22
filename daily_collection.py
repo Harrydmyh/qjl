@@ -683,57 +683,50 @@ def today_used_covers(account, today_str=None, exclude_file=None):
     return used_ids, used_pics
 
 
-def cover_first(order, acts, sales=None):
-    """把封面 6 款提到最前面：主图要有模特真人（半身/大头照），其中销量优先，且避开当天已用封面。
-
-    封面在合集里就是前 6 张图，只能靠调顺序实现。
-    候选取优先级最高的 COVER_SCAN 条，在里面挑「检测到人脸、且脸够大」的，
-    再按今天的单量排（单量一样时食品类优先），取前 6 条。
-    """
-    used_ids, used_pics = today_used_covers("tang", exclude_file=SELECTED)
+def cover_food(order, acts, sales=None, n=COVER_FOOD, account="tang", exclude_file=None):
+    """从全部候选中挑出真食品，避开当天已用封面，按销量（再看浏览量）取前 n 款作封面。"""
+    if not order:
+        return []
+    sales = sales or {}
+    try:
+        import classify_cat as cc
+        cat = cc.classify([acts[a]["name"] for a in order])
+    except Exception as e:
+        log("品类判定跳过：", e)
+        return []
+    used_ids, used_pics = today_used_covers(account, exclude_file=exclude_file)
     def _used(a):
         if a in used_ids:
             return True
         pics = (acts.get(a) or {}).get("pics") or []
         return bool(pics and pics[0] and pics[0] in used_pics)
 
-    head = [a for a in order if not _used(a)][:COVER_SCAN]
-    if len(head) < COVER_FOOD:
-        head = order[:COVER_SCAN]
-    if not head:
-        return order, set()
+    foods = [a for a in order if cat.get(acts[a]["name"]) == 1]
+    foods.sort(key=lambda a: (-(sales.get(a, 0)),
+                              -(acts[a].get("view") or 0),
+                              -(acts[a].get("create") or 0)))
+    fresh_foods = [a for a in foods if not _used(a)]
+    picked = fresh_foods[:n]
+    if len(picked) < n:
+        picked += [a for a in foods if a not in picked][:n - len(picked)]
+    if len(picked) < n:
+        rest = [a for a in order if a not in picked]
+        rest.sort(key=lambda a: (-(sales.get(a, 0)), -(acts[a].get("view") or 0)))
+        picked += rest[:n - len(picked)]
     if used_ids:
         log(f"避开当天已用封面 {len(used_ids)} 个")
-    sales = sales or {}
-    pics = [((acts.get(a) or {}).get("pics") or [""])[0] for a in head]
-    scores = face_scores(pics)
-    face_ok = [a for a, (cnt, h) in zip(head, scores) if cnt > 0 and h >= FACE_MIN_H]
-    log(f"封面候选 {len(head)} 个，主图有半身/大头人像 {len(face_ok)} 个")
-    if len(face_ok) < COVER_FOOD:                     # 不够就把脸小一点的补上
-        face_ok += [a for a, (cnt, h) in zip(head, scores)
-                    if a not in face_ok and cnt > 0][:COVER_FOOD - len(face_ok)]
-    if not face_ok:
-        log("没有一张主图有真人，封面保持原顺序")
-        return order, set()
+    log(f"封面 {n} 款：食品 {len([a for a in picked if cat.get(acts[a]['name']) == 1])} 个"
+        f"（最高销量 {sales.get(picked[0], 0) if picked else 0}）")
+    return picked[:n]
 
-    foods = set()
-    try:
-        import classify_cat
-        cat = classify_cat.classify([acts[a]["name"] for a in face_ok])
-        foods = {a for a in face_ok if cat.get(acts[a]["name"]) == 1}
-    except Exception as e:
-        log("品类判定跳过：", e)
 
-    face_ok.sort(key=lambda a: (-(sales.get(a) or 0),
-                                0 if a in foods else 1,
-                                -(acts[a].get("view") or 0)))
-    head6 = face_ok[:COVER_FOOD]
-    if len(head6) < COVER_FOOD:                       # 实在不够就按原顺序凑
-        head6 += [a for a in head if a not in head6][:COVER_FOOD - len(head6)]
-    head6 = head6[:COVER_FOOD]
-    log(f"封面 6 款：{len([a for a in head6 if a in foods])} 个食品 / "
-        f"{len([a for a in head6 if a not in foods])} 个非食品")
-    return head6 + [a for a in order if a not in head6], set(head6)
+def cover_first(order, acts, sales=None):
+    """汤团日间集市封面：从全部候选中挑真食品且销量靠前（避开当天已用封面），放到最前 6 位。"""
+    head6 = cover_food(order, acts, sales=sales, n=COVER_FOOD,
+                       account="tang", exclude_file=SELECTED)
+    if not head6:
+        return order, []
+    return head6 + [a for a in order if a not in head6], head6
 
 
 def dump_xlsx(payload, path):
@@ -787,6 +780,29 @@ def dump_xlsx(payload, path):
 
 
 # ---------------------------------------------------------------- 6. 写合集
+def publish_collection_pin(session, headers, gh, cid):
+    """新建合集后：勾选展示到主页资源位 + 置顶。"""
+    if not cid:
+        return
+    try:
+        cid_int = int(cid)
+    except Exception:
+        return
+    for path, body, label in (
+        ("/ghome-feed/act_collection/act_collection_stick_opt",
+         {"ghId": gh, "actCollectionId": cid_int, "stickyOperation": True},
+         "展示到主页资源位"),
+        ("/ghome-feed/act_collection/act_collection_set_2_top",
+         {"ghId": gh, "actCollectionId": cid_int, "topOperation": True},
+         "置顶"),
+    ):
+        try:
+            res = session.post(core.BASE_URL + path, json=body, headers=headers, timeout=20).json()
+            log(f"合集 {cid_int} {label}：{res.get('code')} {res.get('data')}")
+        except Exception as e:
+            log(f"合集 {cid_int} {label}失败：{e}")
+
+
 def create_collection(session, headers, title, act_ids):
     try:
         tpl = session.post(core.BASE_URL + "/ghome-feed/act_collection/act_collection_query_by_id",
@@ -803,6 +819,8 @@ def create_collection(session, headers, title, act_ids):
     r = session.post(core.BASE_URL + "/ghome-feed/act_collection/act_collection_create",
                      json=body, headers=headers, timeout=60).json()
     log("创建结果", r.get("code"), r.get("msg"), r.get("data"))
+    if isinstance(r, dict) and r.get("data"):
+        publish_collection_pin(session, headers, TANG, r.get("data"))
     return r
 
 
@@ -900,7 +918,7 @@ def main():
 
     title = a.title or f"汤团日间集市{today.month}.{today.day}"
     payload = {"date": today.strftime("%Y-%m-%d"), "title": title, "actIdList": order,
-               "cover": sorted(cover), "source": src,
+               "cover": list(cover), "source": src,
                "dedup": {"dropped": len(deduper.dropped), "by_reason": deduper.stats},
                "acts": {a: {"name": acts[a]["name"], "pics": acts[a].get("pics") or [],
                             "goods": len((cache.get(a) or {}).get("goods") or []),

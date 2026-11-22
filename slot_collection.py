@@ -373,6 +373,8 @@ def create_collection(session, headers, gh, title, act_ids):
     r = session.post(core.BASE_URL + "/ghome-feed/act_collection/act_collection_create",
                      json=body, headers=headers, timeout=60).json()
     log("创建结果", r.get("code"), r.get("msg"), r.get("data"))
+    if isinstance(r, dict) and r.get("data"):
+        dc.publish_collection_pin(session, headers, gh, r.get("data"))
     return r
 
 
