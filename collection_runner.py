@@ -1,12 +1,12 @@
 """常驻合集定时调度器 —— 挂在 server.py 里跑，替代本地 AI 定时任务。
 
 覆盖合集自动任务.md 中的 6 条定时任务：
-  · 06:00 汤团   M.D汤团主推榜         (slot_collection.py --account tang --slot morning --apply)
-  · 06:10 汤团²  M.D汤团2主推榜        (slot_collection.py --account tang2 --slot morning --apply)
-  · 12:30 汤团   M.D汤团午间好品不错过 (slot_collection.py --account tang --slot noon --apply)
-  · 12:40 汤团²  M.D汤团2午间好品不错过(slot_collection.py --account tang2 --slot noon --apply)
-  · 19:00 汤团   汤团日间集市M.D       (daily_collection.py --apply)
-  · 19:00 汤团²  汤团日间集市M.D       (daily_collection2.py --apply)
+  · 05:45 汤团   M.D汤团主推榜         (slot_collection.py --account tang --slot morning --apply)
+  · 05:55 汤团²  M.D汤团2主推榜        (slot_collection.py --account tang2 --slot morning --apply)
+  · 12:15 汤团   M.D汤团午间好品不错过 (slot_collection.py --account tang --slot noon --apply)
+  · 12:25 汤团²  M.D汤团2午间好品不错过(slot_collection.py --account tang2 --slot noon --apply)
+  · 18:45 汤团   汤团日间集市M.D       (daily_collection.py --apply)
+  · 18:45 汤团²  汤团日间集市M.D       (daily_collection2.py --apply)
 """
 import fcntl
 import json
@@ -36,42 +36,42 @@ PROXY_VARS = (
 TASKS = [
     {
         "id": "tang_morning",
-        "hour": 6, "minute": 0,
+        "hour": 5, "minute": 45,
         "account": "汤团",
         "title": "M.D汤团主推榜",
         "cmd": ["slot_collection.py", "--account", "tang", "--slot", "morning"],
     },
     {
         "id": "tang2_morning",
-        "hour": 6, "minute": 10,
+        "hour": 5, "minute": 55,
         "account": "汤团²",
         "title": "M.D汤团2主推榜",
         "cmd": ["slot_collection.py", "--account", "tang2", "--slot", "morning"],
     },
     {
         "id": "tang_noon",
-        "hour": 12, "minute": 30,
+        "hour": 12, "minute": 15,
         "account": "汤团",
         "title": "M.D汤团午间好品不错过",
         "cmd": ["slot_collection.py", "--account", "tang", "--slot", "noon"],
     },
     {
         "id": "tang2_noon",
-        "hour": 12, "minute": 40,
+        "hour": 12, "minute": 25,
         "account": "汤团²",
         "title": "M.D汤团2午间好品不错过",
         "cmd": ["slot_collection.py", "--account", "tang2", "--slot", "noon"],
     },
     {
         "id": "tang_daily",
-        "hour": 19, "minute": 0,
+        "hour": 18, "minute": 45,
         "account": "汤团",
         "title": "汤团日间集市M.D",
         "cmd": ["daily_collection.py"],
     },
     {
         "id": "tang2_daily",
-        "hour": 19, "minute": 0,
+        "hour": 18, "minute": 45,
         "account": "汤团²",
         "title": "汤团日间集市M.D",
         "cmd": ["daily_collection2.py"],
