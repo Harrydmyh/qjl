@@ -809,6 +809,31 @@ async def auto_account(body: AutoAccount):
     return {"ok": True, "account": info}
 
 
+# ── 合集定时任务（常驻调度，挂在服务里）────────────────────────────────────
+@app.get("/api/collection/status")
+async def collection_status():
+    import collection_runner
+    return collection_runner.status()
+
+
+@app.post("/api/collection/toggle")
+async def collection_toggle(body: AutoToggle):
+    import collection_runner
+    st = collection_runner.set_enabled(body.enabled)
+    return {"ok": True, "enabled": st.get("enabled")}
+
+
+class CollectionRunReq(BaseModel):
+    taskId: str
+    apply: bool = False
+
+
+@app.post("/api/collection/run")
+async def collection_run(body: CollectionRunReq):
+    import collection_runner
+    return collection_runner.run_task_async(body.taskId, apply=body.apply)
+
+
 # ── 周报生成与下载 ───────────────────────────────────────────────────────
 _gen_lock = threading.Lock()
 _gen_state = {
@@ -990,7 +1015,9 @@ async def auto_download(file: str = ""):
 async def _start_auto_runner():
     """服务一启动就把调度线程挂上（默认关着，页面上点「启动」才真开）。"""
     import auto_runner
+    import collection_runner
     auto_runner.ensure_thread()
+    collection_runner.ensure_thread()
 
 
 # ── CORS ────────────────────────────────────────────────────────────────

@@ -41,6 +41,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -64,6 +65,7 @@ FACE_MIN_H = 0.075             # 人脸框高 / 图高，≥ 这个算半身照�
 IMG_BASE = "https://res0.shangshi360.com/"
 FACE_SRC = os.path.join(HERE, "tools", "facedet.swift")
 FACE_BIN = os.path.join(HERE, "tools", "facedet")
+YUNET_MODEL = os.path.join(HERE, "tools", "face_detection_yunet_2023mar.onnx")
 DAY_CUTOFF_HM = (12, 30)       # 「当天新开」只从 12:30 之后算（用户 2026-11-21 定）
 REFRESH_HOURS = 12             # 同一个团的商品明细，12 小时内不重复拉
 CACHE_VER = 2                  # 缓存结构版本；升级后自动重拉（v2 才带 spuId 和全部图片）
@@ -551,12 +553,41 @@ def _ensure_facedet():
         return None
 
 
+def _face_scores_yunet(files, n):
+    """Linux 下的 OpenCV YuNet 人脸检测，返回 [(人脸数, 最大脸高占比)]。"""
+    import cv2
+    if not os.path.exists(YUNET_MODEL):
+        return None
+    det = cv2.FaceDetectorYN.create(YUNET_MODEL, "", (300, 300), 0.6, 0.3, 5000)
+    res = {}
+    for i, path in enumerate(files):
+        if not os.path.exists(path):
+            continue
+        img = cv2.imread(path)
+        if img is None:
+            continue
+        h, w = img.shape[:2]
+        if h <= 0 or w <= 0:
+            continue
+        det.setInputSize((w, h))
+        _, faces = det.detect(img)
+        if faces is None or len(faces) == 0:
+            res[i] = (0, 0.0)
+        else:
+            max_h = max(float(f[3]) / h for f in faces)
+            res[i] = (len(faces), max_h)
+    return [res.get(i, (0, 0.0)) for i in range(n)]
+
+
 def face_scores(pics):
     """并发下载主图 → [(人脸数, 最大脸高占比)]，顺序和 pics 一一对应。"""
     n = len(pics)
     blank = [(0, 0.0)] * n
-    bin_ = _ensure_facedet()
-    if not bin_ or not n:
+    if not n:
+        return blank
+    bin_ = _ensure_facedet() if sys.platform == "darwin" else None
+    has_yunet = os.path.exists(YUNET_MODEL)
+    if not bin_ and not has_yunet:
         return blank
     tmp = tempfile.mkdtemp(prefix="cover_")
     try:
@@ -588,18 +619,21 @@ def face_scores(pics):
         todo = [f for f in files if os.path.exists(f)]
         if not todo:
             return blank
-        out = subprocess.run([bin_] + todo, capture_output=True, timeout=180)
-        res = {}
-        for line in (out.stdout or b"").decode("utf-8", "ignore").splitlines():
-            parts = line.split("\t")
-            if len(parts) < 4:
-                continue
-            try:
-                idx = int(os.path.basename(parts[0]).split("s.")[0])
-                res[idx] = (int(parts[1]), float(parts[3]))
-            except Exception:
-                continue
-        return [res.get(i, (0, 0.0)) for i in range(n)]
+        if bin_:
+            out = subprocess.run([bin_] + todo, capture_output=True, timeout=180)
+            res = {}
+            for line in (out.stdout or b"").decode("utf-8", "ignore").splitlines():
+                parts = line.split("\t")
+                if len(parts) < 4:
+                    continue
+                try:
+                    idx = int(os.path.basename(parts[0]).split("s.")[0])
+                    res[idx] = (int(parts[1]), float(parts[3]))
+                except Exception:
+                    continue
+            return [res.get(i, (0, 0.0)) for i in range(n)]
+        yunet_res = _face_scores_yunet(files, n)
+        return yunet_res if yunet_res is not None else blank
     except Exception as e:
         log("人脸检测失败，封面退回按原顺序取：", e)
         return blank

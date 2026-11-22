@@ -319,6 +319,19 @@
     </div>
   </div>
 
+  <!-- Collection Tasks -->
+  <div class="card">
+    <div class="card-hdr">
+      <div class="card-title">合集定时任务（6 条）</div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span class="card-sub" id="collStateText">加载中…</span>
+        <button class="primary" id="btnCollToggle" style="padding:4px 10px;font-size:12px;">切换</button>
+      </div>
+    </div>
+    <div id="collBox"><div class="empty">加载中…</div></div>
+    <div id="collEvBox" style="margin-top:10px;"></div>
+  </div>
+
   <!-- Bottom Section: Account Settings & Live Events -->
   <div class="bottom-grid">
     <!-- Account Settings -->
@@ -618,7 +631,65 @@ async function refresh(){
   }
   render(s);
   checkGenStatus();
+  loadCollections();
 }
+
+// ── Collection Scheduler ──
+let collEnabled = true;
+async function loadCollections(){
+  try {
+    const r = await api('/api/collection/status');
+    collEnabled = !!r.enabled;
+    const cur = r.current;
+    $('collStateText').innerHTML = cur
+      ? `<span style="color:#5cd697;">执行中：${esc(cur.account)} · ${esc(cur.title)}</span>`
+      : (collEnabled ? '<span style="color:#5cd697;">● 已开启</span>' : '<span style="color:var(--muted);">○ 已暂停</span>');
+    $('btnCollToggle').textContent = collEnabled ? '暂停合集' : '启动合集';
+    const rows = (r.tasks || []).map(t => {
+      let stHtml = '<span class="pill pending">今日待跑</span>';
+      if (cur && cur.id === t.id) stHtml = '<span class="pill open">执行中</span>';
+      else if (t.ranToday && t.lastStatus === 'ok') stHtml = `<span class="pill open">已建${t.lastCollectionId ? ' #' + esc(t.lastCollectionId) : ''}</span>`;
+      else if (t.ranToday && t.lastStatus === 'fail') stHtml = '<span class="pill fail">今日失败</span>';
+      return `<tr>
+        <td class="mono">${esc(t.time)}</td>
+        <td>${esc(t.account)}</td>
+        <td title="${esc(t.lastSummary || '')}">${esc(t.title)}</td>
+        <td>${stHtml}</td>
+        <td style="white-space:nowrap;">
+          <button class="ghost" style="padding:2px 7px;font-size:11.5px;" onclick="runColl('${esc(t.id)}',false)">预览</button>
+          <button class="ghost" style="padding:2px 7px;font-size:11.5px;" onclick="runColl('${esc(t.id)}',true)">建合集</button>
+        </td>
+      </tr>`;
+    }).join('');
+    $('collBox').innerHTML = `<div class="tblwrap" style="max-height:240px;"><table>
+      <thead><tr><th style="width:52px">时间</th><th style="width:56px">账号</th><th>标题</th><th style="width:105px">状态</th><th style="width:108px">操作</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+    const evs = (r.events || []).slice(0, 6).map(e =>
+      `<div style="font-size:12px;color:var(--muted);line-height:1.5;"><span class="mono">${esc((e.at||'').slice(11,19))}</span> ${esc(e.text||'')}</div>`
+    ).join('');
+    $('collEvBox').innerHTML = evs;
+  } catch(e) {
+    $('collStateText').textContent = '加载失败';
+  }
+}
+
+window.runColl = async function(taskId, apply){
+  if (apply && !confirm('确定立即正式新建这条合集？（注意：平台没有删除合并集的接口）')) return;
+  try {
+    const r = await api('/api/collection/run', {method:'POST', body: JSON.stringify({taskId, apply})});
+    if (!r.ok) showToast(r.error || '启动失败');
+    else showToast(apply ? '已开始正式建合集' : '已开始预览（dry-run）');
+    loadCollections();
+  } catch(e) { showToast(e.message); }
+};
+
+$('btnCollToggle').onclick = async () => {
+  try {
+    await api('/api/collection/toggle', {method:'POST', body: JSON.stringify({enabled: !collEnabled})});
+    await loadCollections();
+    showToast(collEnabled ? '已启动合集定时任务' : '已暂停合集定时任务');
+  } catch(e) { showToast(e.message); }
+};
 
 // ── Reports & Download List ──
 async function loadReports(){

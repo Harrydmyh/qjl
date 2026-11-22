@@ -255,7 +255,7 @@ def choose_cover(order, acts, n=COVER_N):
     if not head:
         return []
     pics = [((acts.get(a) or {}).get("pics") or [""])[0] for a in head]
-    scores = face_scores(pics)
+    scores = dc.face_scores(pics)
     picked = [a for a, (cnt, h) in zip(head, scores) if cnt > 0 and h >= FACE_MIN_H]
     log(f"封面候选 {len(head)} 个，主图有半身/大头人像的 {len(picked)} 个")
     if len(picked) < n:                                    # 不够就把脸小一点的补上
