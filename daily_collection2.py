@@ -482,6 +482,10 @@ def main():
         order = cover + [a for a in order if a not in cover]
         log(f"封面 {len(cover)} 款：" + "；".join((acts[a].get("name") or "")[:14] for a in cover))
 
+    if len(order) > MAX_ITEMS:
+        log(f"超过上限，截到 {MAX_ITEMS} 条（原 {len(order)} 条）")
+        order = order[:MAX_ITEMS]
+
     if len(order) < MIN_ITEMS:
         log(f"⚠️ 只有 {len(order)} 条，不足 {MIN_ITEMS}；"
             f"今天开的帮卖链接就这么多，可用 --title 或调 UV 口径再看")

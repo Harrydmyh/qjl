@@ -173,6 +173,8 @@ def _parse_output(out):
     summary = lines[-1] if lines else ""
     if "登录凭证不合法或已过期" in out or '"code":403' in out:
         return "fail", cid, "token 已过期（403），请更新 config.json"
+    if "没拿到合集 ID" in out or "最多200个活动" in out:
+        return "fail", cid, summary[:120]
     return "ok", cid, summary[:120]
 
 
