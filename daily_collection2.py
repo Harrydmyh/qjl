@@ -247,10 +247,9 @@ def face_scores(pics):
 
 
 def choose_cover(order, acts, n=COVER_N):
-    """从前 COVER_SCAN 个候选里挑主图有真人的（脸够大＝半身/大头照），避开当天已用封面，按原顺序取 n 个。
-
-    顺序本身就是「销量优先、再看访问量」，所以挑出来的就是在有真人图的里面销量最好的。
-    """
+    """分批从候选中挑主图有真人的（脸够大＝半身/大头照），避开当天已用封面，不够 6 个继续往后扫，按原顺序取 n 个。"""
+    if not order:
+        return []
     used_ids, used_pics = dc.today_used_covers("tang2", exclude_file=SELECTED)
     def _used(a):
         if a in used_ids:
@@ -258,22 +257,36 @@ def choose_cover(order, acts, n=COVER_N):
         pics = (acts.get(a) or {}).get("pics") or []
         return bool(pics and pics[0] and pics[0] in used_pics)
 
-    head = [a for a in order if not _used(a)][:COVER_SCAN]
-    if len(head) < n:
-        head = order[:COVER_SCAN]
-    if not head:
-        return []
+    pool = [a for a in order if not _used(a)]
+    if len(pool) < n:
+        pool = list(order)
     if used_ids:
         log(f"避开当天已用封面 {len(used_ids)} 个")
-    pics = [((acts.get(a) or {}).get("pics") or [""])[0] for a in head]
-    scores = dc.face_scores(pics)
-    picked = [a for a, (cnt, h) in zip(head, scores) if cnt > 0 and h >= FACE_MIN_H]
-    log(f"封面候选 {len(head)} 个，主图有半身/大头人像的 {len(picked)} 个")
+
+    picked, small_faces, scanned = [], [], 0
+    max_scan = min(len(pool), COVER_SCAN * 5)   # 最多往后扫 120 条，凑够 6 个真人封面就停
+    for off in range(0, max_scan, COVER_SCAN):
+        batch = pool[off:off + COVER_SCAN]
+        if not batch:
+            break
+        scanned += len(batch)
+        pics = [((acts.get(a) or {}).get("pics") or [""])[0] for a in batch]
+        scores = dc.face_scores(pics)
+        for a, (cnt, h) in zip(batch, scores):
+            if cnt > 0 and h >= FACE_MIN_H:
+                if a not in picked:
+                    picked.append(a)
+            elif cnt > 0:
+                if a not in small_faces:
+                    small_faces.append(a)
+        if len(picked) >= n:
+            break
+
+    log(f"封面候选扫描 {scanned} 个，主图有半身/大头人像的 {len(picked)} 个")
     if len(picked) < n:                                    # 不够就把脸小一点的补上
-        more = [a for a, (cnt, h) in zip(head, scores) if a not in picked and cnt > 0]
-        picked += more[:n - len(picked)]
+        picked += [a for a in small_faces if a not in picked][:n - len(picked)]
     if len(picked) < n:                                    # 还不够就按顺序凑
-        picked += [a for a in head if a not in picked][:n - len(picked)]
+        picked += [a for a in pool if a not in picked][:n - len(picked)]
     return picked[:n]
 
 
@@ -414,7 +427,7 @@ def main():
     a = ap.parse_args()
 
     today = datetime.date.today()
-    title = a.title or f"汤团日间集市{today.month}.{today.day}"
+    title = a.title or f"服饰美妆日间集市{today.month}.{today.day}"
 
     done = {}
     try:

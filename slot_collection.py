@@ -44,16 +44,16 @@ POOL_DAYS_TANG = 30          # 汤团：主页翻到 30 天前就够（榜单里
 POOL_HOURS_TANG2 = 48        # 汤团²：候选池往回看 48 小时（补位用）
 
 ACCOUNTS = {
-    "tang": {"name": "汤团", "gh": dc.TANG, "cover": "food",
+    "tang": {"name": "汤团", "pub_name": "食品日用", "gh": dc.TANG, "cover": "food",
              "self_must": True, "uv": dc.UV_TOP_RATIO},
-    "tang2": {"name": "汤团2", "gh": d2.TANG2, "cover": "model",
+    "tang2": {"name": "汤团2", "pub_name": "服饰美妆", "gh": d2.TANG2, "cover": "model",
               "self_must": False, "uv": d2.UV_TOP_RATIO},
 }
 
 SLOTS = {
-    "morning": {"label": "晨间", "suffix": "主推榜", "start": (-1, 6, 0),
+    "morning": {"label": "晨间", "suffix": "晨间", "start": (-1, 6, 0),
                 "end": (0, 6, 0), "yesterday": True, "uv": None},
-    "noon": {"label": "午间", "suffix": "午间好品不错过", "start": (0, 6, 0),
+    "noon": {"label": "午间", "suffix": "午间", "start": (0, 6, 0),
              "end": (0, 12, 30), "yesterday": False, "uv": 0.50},
 }
 
@@ -394,7 +394,7 @@ def main():
     end_ms = ms(today + datetime.timedelta(days=slot["end"][0]), *slot["end"][1:])
     ratio = slot["uv"] if slot["uv"] else acc["uv"]
     title_date = (today - datetime.timedelta(days=1)) if a.slot == "morning" else today
-    title = a.title or f"{title_date.month}.{title_date.day}{acc['name']}{slot['suffix']}"
+    title = a.title or f"{title_date.month}.{title_date.day}{acc['pub_name']}{slot['suffix']}"
 
     store = os.path.join(DATA, f"slot_{a.account}_{a.slot}.json")
     done = {}

@@ -916,7 +916,7 @@ def main():
         log("一条都没选出来，先不动")
         return
 
-    title = a.title or f"汤团日间集市{today.month}.{today.day}"
+    title = a.title or f"食品日用日间集市{today.month}.{today.day}"
     payload = {"date": today.strftime("%Y-%m-%d"), "title": title, "actIdList": order,
                "cover": list(cover), "source": src,
                "dedup": {"dropped": len(deduper.dropped), "by_reason": deduper.stats},
